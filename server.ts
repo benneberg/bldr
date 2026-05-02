@@ -63,6 +63,17 @@ db.exec(`
     project_id TEXT PRIMARY KEY,
     messages JSON
   );
+
+  // Migrations
+  const filesCols = db.prepare("PRAGMA table_info(files)").all() as any[];
+  if (!filesCols.some(c => c.name === 'repository_id')) {
+    db.exec("ALTER TABLE files ADD COLUMN repository_id TEXT");
+  }
+
+  const projectsCols = db.prepare("PRAGMA table_info(projects)").all() as any[];
+  if (!projectsCols.some(c => c.name === 'workspace_config')) {
+    db.exec("ALTER TABLE projects ADD COLUMN workspace_config JSON");
+  }
 `);
 
 const app = express();
