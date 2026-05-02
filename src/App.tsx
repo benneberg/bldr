@@ -19,10 +19,15 @@ import {
   Code,
   ExternalLink,
   Activity,
-  UploadCloud
+  UploadCloud,
+  Save,
+  Check
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI, Type } from "@google/genai";
+import CodeMirror from '@uiw/react-codemirror';
+import { javascript } from '@codemirror/lang-javascript';
+import { oneDark } from '@codemirror/theme-one-dark';
 
 const ai = new GoogleGenAI({ apiKey: (process as any).env.GEMINI_API_KEY || '' });
 
@@ -798,7 +803,10 @@ function FilesPanel({ projectId, onExplain }: { projectId: string, onExplain: (r
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [content, setContent] = useState<string | null>(null);
+  const [editedContent, setEditedContent] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   useEffect(() => {
     const fetchFiles = async () => {
@@ -809,6 +817,13 @@ function FilesPanel({ projectId, onExplain }: { projectId: string, onExplain: (r
     fetchFiles();
   }, [projectId]);
 
+  useEffect(() => {
+    if (content !== null) {
+      setEditedContent(content);
+      setHasUnsavedChanges(false);
+    }
+  }, [content]);
+
   const handleOpenFile = async (path: string) => {
     setSelectedFile(path);
     setIsLoading(true);
@@ -818,6 +833,24 @@ function FilesPanel({ projectId, onExplain }: { projectId: string, onExplain: (r
       setContent(text);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!selectedFile || isSaving) return;
+    setIsSaving(true);
+    try {
+      const res = await fetch('/api/tools/write_file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId, path: selectedFile, content: editedContent })
+      });
+      if (res.ok) {
+        setContent(editedContent);
+        setHasUnsavedChanges(false);
+      }
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -832,24 +865,55 @@ function FilesPanel({ projectId, onExplain }: { projectId: string, onExplain: (r
               <ArrowLeft className="w-4 h-4" />
             </button>
             <span className="text-[10px] font-mono text-mimo-accent uppercase tracking-widest truncate max-w-[120px]">{selectedFile.split('/').pop()}</span>
+            {hasUnsavedChanges && <div className="w-1.5 h-1.5 rounded-full bg-mimo-accent animate-pulse" />}
           </div>
-          <button 
-            onClick={() => onExplain({ path: selectedFile, content: content || '' })}
-            className="px-3 py-1 bg-white/5 border border-mimo-border hover:border-mimo-accent hover:text-mimo-accent rounded-full text-[9px] font-mono transition-all flex items-center gap-2"
-          >
-            <HelpCircle className="w-3 h-3" />
-            AI EXPLAIN
-          </button>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={handleSave}
+              disabled={!hasUnsavedChanges || isSaving}
+              className={`px-3 py-1 flex items-center gap-2 rounded-full text-[9px] font-mono transition-all border ${
+                hasUnsavedChanges 
+                  ? 'bg-mimo-accent text-mimo-bg border-mimo-accent hover:opacity-90' 
+                  : 'bg-white/5 border-mimo-border text-mimo-text-muted opacity-50 cursor-not-allowed'
+              }`}
+            >
+              {isSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : hasUnsavedChanges ? <Save className="w-3 h-3" /> : <Check className="w-3 h-3" />}
+              {isSaving ? 'SAVING...' : hasUnsavedChanges ? 'SAVE CHANGES' : 'SAVED'}
+            </button>
+            <button 
+              onClick={() => onExplain({ path: selectedFile, content: editedContent || '' })}
+              className="px-3 py-1 bg-white/5 border border-mimo-border hover:border-mimo-accent hover:text-mimo-accent rounded-full text-[9px] font-mono transition-all flex items-center gap-2"
+            >
+              <HelpCircle className="w-3 h-3" />
+              AI EXPLAIN
+            </button>
+          </div>
         </header>
-        <div className="flex-1 overflow-auto p-4 sm:p-6">
+        <div className="flex-1 overflow-auto bg-[#282c34]">
           {isLoading ? (
             <div className="h-full flex items-center justify-center">
               <Loader2 className="animate-spin text-mimo-accent" />
             </div>
           ) : (
-            <pre className="text-[11px] sm:text-xs font-mono whitespace-pre text-mimo-text leading-relaxed">
-              {content}
-            </pre>
+            <CodeMirror
+              value={editedContent}
+              height="100%"
+              theme={oneDark}
+              extensions={[javascript({ jsx: true, typescript: true })]}
+              onChange={(value) => {
+                setEditedContent(value);
+                setHasUnsavedChanges(value !== content);
+              }}
+              basicSetup={{
+                lineNumbers: true,
+                highlightActiveLine: true,
+                bracketMatching: true,
+                closeBrackets: true,
+                autocompletion: true,
+                foldGutter: true,
+              }}
+              className="text-[11px] sm:text-xs h-full"
+            />
           )}
         </div>
       </div>
