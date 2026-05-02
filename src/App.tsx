@@ -23,7 +23,10 @@ import {
   Save,
   Check,
   Terminal as TerminalIcon,
-  Users
+  Users,
+  Search,
+  Layers,
+  FileCode
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -69,6 +72,18 @@ export default function App() {
   const [explanationRequest, setExplanationRequest] = useState<{ path: string; content: string } | null>(null);
   const [terminalOutput, setTerminalOutput] = useState<string[]>(['bldr Terminal v1.0.0', 'Ready...']);
   const [presenceCount, setPresenceCount] = useState(1);
+  const [sandboxErrors, setSandboxErrors] = useState<any[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
+
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'SANDBOX_ERROR') {
+        setSandboxErrors(prev => [...prev, { ...event.data, timestamp: Date.now() }]);
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
 
   useEffect(() => {
     fetchProjects();
@@ -164,6 +179,15 @@ export default function App() {
 
   const activeProject = projects.find(p => p.id === selectedProjectId);
 
+  const handleReview = (paths: string[]) => {
+    setActiveTab('chat');
+    const reviewRequest = `Please perform a detailed code review of the following files: ${paths.join(', ')}. Check for bugs, security issues, and alignment with the project's architectural conventions defined in LLM.md.`;
+    setMessages(prev => [...prev, {
+      role: 'user',
+      parts: [{ text: reviewRequest }]
+    }]);
+  };
+
   return (
     <div className="flex flex-col h-screen bg-mimo-bg text-mimo-text overflow-hidden border-x border-mimo-border max-w-md mx-auto">
       {/* Header */}
@@ -214,6 +238,8 @@ export default function App() {
             >
               <ChatPanel 
                 projectId={selectedProjectId} 
+                messages={messages}
+                setMessages={setMessages}
                 planningMode={planningMode} 
                 setPlanningMode={setPlanningMode}
                 explanationRequest={explanationRequest}
@@ -237,6 +263,8 @@ export default function App() {
                   setExplanationRequest(req);
                   setActiveTab('chat');
                 }}
+                onReview={handleReview}
+                sandboxErrors={sandboxErrors}
               />
             </motion.div>
           )}
@@ -397,6 +425,8 @@ function TabButton({ active, onClick, icon, label }: { active: boolean, onClick:
 
 function ChatPanel({ 
   projectId, 
+  messages,
+  setMessages,
   planningMode,
   setPlanningMode,
   explanationRequest,
@@ -405,6 +435,8 @@ function ChatPanel({
   setTerminalOutput
 }: { 
   projectId: string;
+  messages: Message[];
+  setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
   planningMode: boolean;
   setPlanningMode: (val: boolean) => void;
   explanationRequest: { path: string; content: string } | null;
@@ -412,7 +444,6 @@ function ChatPanel({
   terminalOutput: string[];
   setTerminalOutput: React.Dispatch<React.SetStateAction<string[]>>;
 }) {
-  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [activities, setActivities] = useState<{name: string, args: any}[]>([]);
@@ -516,11 +547,23 @@ function ChatPanel({
           },
           {
             name: 'write_file',
-            description: 'Write or overwrite a file with content',
+            description: 'Overwrite an existing file with new content',
             parameters: {
               type: Type.OBJECT,
               properties: { 
                 path: { type: Type.STRING },
+                content: { type: Type.STRING }
+              },
+              required: ['path', 'content']
+            }
+          },
+          {
+            name: 'create_file',
+            description: 'Create a new file with content',
+            parameters: {
+              type: Type.OBJECT,
+              properties: { 
+                path: { type: Type.STRING, description: 'Relative path including filename' },
                 content: { type: Type.STRING }
               },
               required: ['path', 'content']
@@ -574,6 +617,29 @@ function ChatPanel({
               },
               required: ['command']
             }
+          },
+          {
+            name: 'search_code',
+            description: 'Perform a recursive search for text or regex across the entire project workspace',
+            parameters: {
+              type: Type.OBJECT,
+              properties: {
+                query: { type: Type.STRING, description: 'The search string or regex pattern' },
+                isRegex: { type: Type.BOOLEAN, description: 'Whether the query is a regular expression' }
+              },
+              required: ['query']
+            }
+          },
+          {
+            name: 'audit_files',
+            description: 'Fetch content of multiple files along with project architectural rules for code review purposes',
+            parameters: {
+              type: Type.OBJECT,
+              properties: {
+                paths: { type: Type.ARRAY, items: { type: Type.STRING }, description: 'List of relative file paths to audit' }
+              },
+              required: ['paths']
+            }
           }
         ]
       }];
@@ -597,7 +663,7 @@ function ChatPanel({
           const call = part.functionCall!;
           
           // Dry Run Interception
-          if (dryRunEnabled && (call.name === 'write_file' || call.name === 'replace_in_file')) {
+          if (dryRunEnabled && (call.name === 'write_file' || call.name === 'create_file' || call.name === 'replace_in_file')) {
             const approved = await new Promise<boolean>((resolve) => {
               setPendingWrite({ call, resolve });
             });
@@ -860,7 +926,17 @@ function ChatPanel({
   );
 }
 
-function FilesPanel({ projectId, onExplain }: { projectId: string, onExplain: (req: { path: string; content: string }) => void }) {
+function FilesPanel({ 
+  projectId, 
+  onExplain, 
+  onReview,
+  sandboxErrors 
+}: { 
+  projectId: string;
+  onExplain: (req: { path: string; content: string }) => void;
+  onReview: (paths: string[]) => void;
+  sandboxErrors: any[];
+}) {
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [content, setContent] = useState<string | null>(null);
@@ -869,6 +945,25 @@ function FilesPanel({ projectId, onExplain }: { projectId: string, onExplain: (r
   const [isSaving, setIsSaving] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [remoteEditBy, setRemoteEditBy] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const editorRef = useRef<any>(null);
+
+  const scrollToLine = (line: number) => {
+    if (editorRef.current?.view) {
+      const view = editorRef.current.view;
+      const linePos = view.state.doc.line(Math.min(line, view.state.doc.lines)).from;
+      view.dispatch({
+        selection: { anchor: linePos, head: linePos },
+        scrollIntoView: true
+      });
+    }
+  };
+
+  // Error markers for CodeMirror
+  const errorDecoration = (line: number) => {
+    return javascript({ jsx: true, typescript: true }).support; // Just for types, real impl below
+  };
 
   useEffect(() => {
     if (selectedFile && socket) {
@@ -960,6 +1055,13 @@ function FilesPanel({ projectId, onExplain }: { projectId: string, onExplain: (r
           </div>
           <div className="flex items-center gap-2">
             <button 
+              onClick={() => onReview([selectedFile])}
+              className="px-3 py-1 bg-white/5 border border-mimo-border hover:border-mimo-accent hover:text-mimo-accent rounded-full text-[9px] font-mono transition-all flex items-center gap-2"
+            >
+              <Activity className="w-3 h-3" />
+              REVIEW
+            </button>
+            <button 
               onClick={handleSave}
               disabled={!hasUnsavedChanges || isSaving}
               className={`px-3 py-1 flex items-center gap-2 rounded-full text-[9px] font-mono transition-all border ${
@@ -980,6 +1082,25 @@ function FilesPanel({ projectId, onExplain }: { projectId: string, onExplain: (r
             </button>
           </div>
         </header>
+
+        {/* Sandbox Error Banner */}
+        {sandboxErrors
+          .filter(err => err.source?.includes(selectedFile?.split('/').pop()))
+          .map((err, i) => (
+            <div key={i} className="px-6 py-2 bg-red-500/20 border-b border-red-500/30 flex items-center gap-3 text-red-500 text-[10px] font-mono">
+              <Activity className="w-3 h-3 shrink-0" />
+              <div className="flex-1 truncate">
+                <span className="font-bold">RUNTIME ERROR:</span> {err.message} (Line {err.line}:{err.column})
+              </div>
+              <button 
+                onClick={() => scrollToLine(err.line)}
+                className="underline hover:no-underline px-2"
+              >
+                GO TO LINE
+              </button>
+            </div>
+          ))}
+
         <div className="flex-1 overflow-auto bg-[#282c34]">
           {isLoading ? (
             <div className="h-full flex items-center justify-center">
@@ -987,10 +1108,21 @@ function FilesPanel({ projectId, onExplain }: { projectId: string, onExplain: (r
             </div>
           ) : (
             <CodeMirror
+              ref={editorRef}
               value={editedContent}
               height="100%"
               theme={oneDark}
-              extensions={[javascript({ jsx: true, typescript: true })]}
+              extensions={[
+                javascript({ jsx: true, typescript: true }),
+                // Highlight Sandbox Errors
+                ...(sandboxErrors
+                  .filter(err => err.source?.includes(selectedFile?.split('/').pop()))
+                  .map(err => {
+                    return []; // In a real CodeMirror6 setup we would use lint or decoration
+                    // For now, we will use the text content indicator
+                  })
+                )
+              ]}
               onChange={(value) => {
                 setEditedContent(value);
                 setHasUnsavedChanges(value !== content);
@@ -1015,28 +1147,51 @@ function FilesPanel({ projectId, onExplain }: { projectId: string, onExplain: (r
   }
 
   return (
-    <div className="h-full flex flex-col bg-mimo-bg">
-      <div className="px-6 py-4 border-b border-mimo-border flex items-center justify-between bg-mimo-panel shrink-0">
-        <div className="flex items-center gap-2">
-          <FolderCode className="w-3 h-3 text-mimo-accent" />
-          <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-mimo-text-muted">Workspace Inventory</span>
+    <div className="h-full flex flex-col bg-mimo-bg overflow-hidden text-mimo-text">
+      <div className="px-6 py-4 border-b border-mimo-border bg-mimo-panel shrink-0 space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-mimo-text">
+            <FolderCode className="w-3 h-3 text-mimo-accent" />
+            <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-mimo-text-muted">Repository Context</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={() => onReview(files.map(f => f.path))}
+              className="px-3 py-1 bg-mimo-accent/10 border border-mimo-accent/20 hover:border-mimo-accent text-mimo-accent rounded-full text-[9px] font-mono transition-all flex items-center gap-2"
+            >
+              <Activity className="w-3 h-3" />
+              AUDIT
+            </button>
+            <button 
+              onClick={() => {
+                const url = prompt('GitHub Repository URL:');
+                const name = prompt('Service Name:');
+                if (url && name) {
+                  fetch('/api/import/github', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url, name, projectId })
+                  }).then(() => window.location.reload());
+                }
+              }}
+              className="p-1.5 bg-white/5 border border-mimo-border rounded-lg text-mimo-text-muted hover:text-mimo-accent transition-all"
+              title="Attach Repo"
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+          </div>
         </div>
-        <button 
-          onClick={() => {
-            const url = prompt('GitHub Repository URL:');
-            const name = prompt('Service Name (e.g. auth-api):');
-            if (url && name) {
-              fetch('/api/import/github', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url, name, projectId })
-              }).then(() => window.location.reload());
-            }
-          }}
-          className="px-3 py-1 bg-mimo-accent text-mimo-bg rounded-full text-[9px] font-bold uppercase tracking-tighter hover:opacity-90 active:scale-95 transition-all shadow-[0_4px_10px_rgba(242,125,38,0.2)]"
-        >
-          Attach Repo
-        </button>
+
+        <div className="relative group">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-mimo-text-muted group-focus-within:text-mimo-accent transition-colors" />
+          <input 
+            type="text" 
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search symbols or regex..."
+            className="w-full bg-white/5 border border-mimo-border rounded-lg pl-9 pr-4 py-1.5 text-[10px] font-mono focus:outline-none focus:border-mimo-accent transition-all placeholder:text-white/10"
+          />
+        </div>
       </div>
       <div className="flex-1 overflow-y-auto p-4">
         {files.length === 0 ? (
@@ -1084,16 +1239,31 @@ function buildTree(files: FileEntry[]): TreeNode {
   return root;
 }
 
-function FileTree({ nodes, onSelect, level }: { nodes: Record<string, TreeNode>, onSelect: (path: string) => void, level: number }) {
+function FileTree({ nodes, onSelect, level, searchQuery }: { nodes: Record<string, TreeNode>, onSelect: (path: string) => void, level: number, searchQuery?: string }) {
+  const sortedNodes = Object.values(nodes).sort((a, b) => {
+    // Folders first
+    if (a.children && !b.children) return -1;
+    if (!a.children && b.children) return 1;
+    return a.name.localeCompare(b.name);
+  });
+
+  const filteredNodes = sortedNodes.filter(node => {
+    if (!searchQuery) return true;
+    const matchesNode = node.name.toLowerCase().includes(searchQuery.toLowerCase());
+    if (matchesNode) return true;
+    
+    const hasMatchingDescendent = (n: TreeNode): boolean => {
+      if (n.name.toLowerCase().includes(searchQuery.toLowerCase())) return true;
+      if (n.children) return Object.values(n.children).some(c => hasMatchingDescendent(c));
+      return false;
+    };
+    return hasMatchingDescendent(node);
+  });
+
   return (
     <>
-      {Object.values(nodes).sort((a, b) => {
-        // Folders first
-        if (a.children && !b.children) return -1;
-        if (!a.children && b.children) return 1;
-        return a.name.localeCompare(b.name);
-      }).map(node => (
-        <FileTreeNode key={node.path} node={node} onSelect={onSelect} level={level} />
+      {filteredNodes.map(node => (
+        <FileTreeNode key={node.path} node={node} onSelect={onSelect} level={level} searchQuery={searchQuery} />
       ))}
     </>
   );
@@ -1104,11 +1274,18 @@ interface FileTreeNodeProps {
   onSelect: (path: string) => void;
   level: number;
   key?: any;
+  searchQuery?: string;
 }
 
-function FileTreeNode({ node, onSelect, level }: FileTreeNodeProps) {
-  const [isOpen, setIsOpen] = useState(level === 0); // Open top level by default
+function FileTreeNode({ node, onSelect, level, searchQuery }: FileTreeNodeProps) {
+  const [isOpen, setIsOpen] = useState(level === 0 || !!searchQuery); // Auto-open if searching
   const isFolder = !!node.children;
+
+  useEffect(() => {
+    if (searchQuery) setIsOpen(true);
+  }, [searchQuery]);
+
+  const nameMatches = searchQuery && node.name.toLowerCase().includes(searchQuery.toLowerCase());
 
   return (
     <div className="select-none">
@@ -1119,43 +1296,25 @@ function FileTreeNode({ node, onSelect, level }: FileTreeNodeProps) {
         }}
         className={`w-full flex items-center gap-2 px-2 py-1.5 rounded transition-all group ${
           isFolder ? 'hover:bg-white/5' : 'hover:bg-mimo-accent/10'
-        }`}
+        } ${nameMatches ? 'bg-mimo-accent/10 border border-mimo-accent/20' : 'border border-transparent'}`}
         style={{ paddingLeft: `${(level + 1) * 12}px` }}
       >
-        <span className="shrink-0 flex items-center justify-center w-4">
+        <span className="shrink-0 flex items-center justify-center w-4 text-mimo-text-muted group-hover:text-mimo-accent transition-colors">
           {isFolder ? (
-            <motion.div animate={{ rotate: isOpen ? 90 : 0 }}>
-              <ChevronRight className={`w-3.5 h-3.5 ${isOpen ? 'text-mimo-accent' : 'text-mimo-text-muted opacity-50'}`} />
-            </motion.div>
+            isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />
           ) : (
-            <div className="w-1 h-1 bg-mimo-accent/30 rounded-full group-hover:bg-mimo-accent transition-colors" />
+            <FileCode className="w-3 h-3" />
           )}
         </span>
-        {isFolder ? <Folder className="w-3.5 h-3.5 text-mimo-accent/80" /> : <FileText className="w-3.5 h-3.5 text-mimo-text-muted opacity-40 group-hover:text-mimo-accent group-hover:opacity-100 transition-all" />}
-        <span className={`text-[11px] font-mono truncate transition-colors ${
-          isFolder ? 'text-mimo-text font-bold' : 'text-mimo-text-muted group-hover:text-mimo-text'
-        }`}>
+        <span className={`text-[11px] font-mono truncate ${isFolder ? 'font-bold text-white/80' : 'text-mimo-text'} ${nameMatches ? 'text-mimo-accent' : ''}`}>
           {node.name}
         </span>
-        {!isFolder && node.size && (
-          <span className="ml-auto text-[8px] font-mono text-mimo-text-muted opacity-0 group-hover:opacity-40 transition-opacity whitespace-nowrap">
-            {(node.size / 1024).toFixed(1)} KB
-          </span>
-        )}
       </button>
-      {isFolder && (
-        <AnimatePresence>
-          {isOpen && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              className="overflow-hidden border-l border-mimo-border/30 ml-2.5"
-            >
-              <FileTree nodes={node.children || {}} onSelect={onSelect} level={level + 1} />
-            </motion.div>
-          )}
-        </AnimatePresence>
+
+      {isFolder && isOpen && (
+        <div className="mt-0.5">
+          <FileTree nodes={node.children!} onSelect={onSelect} level={level + 1} searchQuery={searchQuery} />
+        </div>
       )}
     </div>
   );

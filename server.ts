@@ -470,6 +470,50 @@ app.post('/api/tools/write_file', async (req, res) => {
   }
 });
 
+app.post('/api/tools/search_code', async (req, res) => {
+  const { projectId, query, isRegex } = req.body;
+  try {
+    const projectDir = path.join(WORKSPACE_ROOT, projectId);
+    // Use grep -rIn for powerful search. -I skips binary files.
+    const flags = isRegex ? '-rInE' : '-rIn';
+    const { stdout } = await execAsync(`grep ${flags} "${query.replace(/"/g, '\\"')}" .`, { 
+      cwd: projectDir,
+      maxBuffer: 1024 * 1024 // 1MB buffer for search results
+    });
+    res.json({ results: stdout });
+  } catch (err: any) {
+    if (err.code === 1) return res.json({ results: '' }); // No matches found
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/tools/audit_files', async (req, res) => {
+  const { projectId, paths } = req.body;
+  try {
+    const projectDir = path.join(WORKSPACE_ROOT, projectId);
+    const auditData: any = {};
+    
+    // Read LLM.md for architectural context if it exists
+    try {
+      auditData.architecture = await fs.readFile(path.join(projectDir, 'LLM.md'), 'utf-8');
+    } catch {}
+
+    const filesContent = await Promise.all((paths as string[]).map(async (p) => {
+      try {
+        const content = await fs.readFile(path.join(projectDir, p), 'utf-8');
+        return { path: p, content };
+      } catch {
+        return null;
+      }
+    }));
+
+    auditData.files = filesContent.filter(f => f !== null);
+    res.json(auditData);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/tools/run_shell', async (req, res) => {
   const { projectId, command } = req.body;
   try {
@@ -506,7 +550,34 @@ app.get('/preview/:projectId/*', async (req, res) => {
   try {
     const fullPath = sanitizePath(projectId, userPath);
     if (existsSync(fullPath)) {
-      res.sendFile(fullPath);
+      if (userPath.endsWith('.html')) {
+        const content = await fs.readFile(fullPath, 'utf-8');
+        const script = `
+          <script>
+            window.onerror = function(message, source, lineno, colno, error) {
+              window.parent.postMessage({
+                type: 'SANDBOX_ERROR',
+                message: message,
+                line: lineno,
+                column: colno,
+                source: source
+              }, '*');
+            };
+            console.error = (function(oldError) {
+              return function() {
+                oldError.apply(console, arguments);
+                window.parent.postMessage({
+                  type: 'SANDBOX_CONSOLE_ERROR',
+                  args: Array.from(arguments).map(String)
+                }, '*');
+              };
+            })(console.error);
+          </script>
+        `;
+        res.send(content.replace('</head>', script + '</head>'));
+      } else {
+        res.sendFile(fullPath);
+      }
     } else {
       res.status(404).send('Not found');
     }

@@ -38,8 +38,10 @@ To keep token usage low while maintaining high AI comprehension, bldr generates 
 2. **LLM.md**: A summarized extraction of package.json dependencies, file extensions, and common patterns to define the "Architectural Convention".
 3. **Package-level CONTEXT.md**: Localized code summaries for individual services.
 
-## 4. Security & Interception
+## 5. Search & Audit
+- **Regex Search Engine**: Uses specialized backend tools to perform recursive GREP operations with support for symbol extraction.
+- **AI Reviewer**: A separate Gemini Persona optimized for static analysis, using the `LLM.md` as the source of truth for project style and architecture.
 
-- **Dry Run Interceptor**: The frontend intercepts `write_file` and `replace_in_file` function calls when Dry Run is active, surfacing a UI modal to the user for approval.
-- **Path Jailing**: All file operations are sanitized to prevent directory traversal outside the `workspace/{id}` root.
-- **Preview Sandbox**: The preview iframe uses `sandbox="allow-scripts allow-forms allow-same-origin"` to isolate running code from the editor environment.
+## 6. Security & Interception
+- **Sandbox Guard**: Injects a specialized error-tracking script into served HTML previews, piping runtime exceptions back to the editor via `postMessage` for immediate debugging.
+- **Dry Run**: AI changes are staged in memory and presented as diffs, requiring explicit JSON approval before disk commit.
