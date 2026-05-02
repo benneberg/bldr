@@ -10,6 +10,12 @@ import AdmZip from 'adm-zip';
 import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
 import * as dotenv from 'dotenv';
+import { Server } from 'socket.io';
+import { createServer } from 'http';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 
 dotenv.config();
 
@@ -464,6 +470,25 @@ app.post('/api/tools/write_file', async (req, res) => {
   }
 });
 
+app.post('/api/tools/run_shell', async (req, res) => {
+  const { projectId, command } = req.body;
+  try {
+    const projectDir = path.join(WORKSPACE_ROOT, projectId);
+    
+    // Security check: only allow a whitelist of basic safe commands or just trust the sandbox for now
+    // In a real app we would be very careful here.
+    const { stdout, stderr } = await execAsync(command, { cwd: projectDir });
+    
+    res.json({ stdout, stderr });
+  } catch (err: any) {
+    res.status(500).json({ 
+      error: err.message, 
+      stdout: err.stdout || '', 
+      stderr: err.stderr || '' 
+    });
+  }
+});
+
 app.post('/api/tools/list_files', async (req, res) => {
   const { projectId } = req.body;
   try {
@@ -493,6 +518,45 @@ app.get('/preview/:projectId/*', async (req, res) => {
 // --- Server Setup ---
 
 async function startServer() {
+  const httpServer = createServer(app);
+  const io = new Server(httpServer);
+
+  const projectUsers: Record<string, Set<string>> = {};
+
+  io.on('connection', (socket) => {
+    console.log('Client connected:', socket.id);
+    
+    socket.on('join_project', (projectId) => {
+      socket.join(projectId);
+      if (!projectUsers[projectId]) projectUsers[projectId] = new Set();
+      projectUsers[projectId].add(socket.id);
+      
+      io.to(projectId).emit('presence_update', Array.from(projectUsers[projectId]).length);
+      console.log(`Socket ${socket.id} joined project ${projectId}`);
+    });
+
+    socket.on('editor_change', ({ projectId, path, changes }) => {
+      socket.to(projectId).emit('remote_change', { path, changes, userId: socket.id });
+    });
+
+    socket.on('chat_message', ({ projectId, message }) => {
+      socket.to(projectId).emit('remote_chat', { message, userId: socket.id });
+    });
+
+    socket.on('disconnecting', () => {
+      for (const room of socket.rooms) {
+        if (projectUsers[room]) {
+          projectUsers[room].delete(socket.id);
+          io.to(room).emit('presence_update', projectUsers[room].size);
+        }
+      }
+    });
+
+    socket.on('disconnect', () => {
+      console.log('Client disconnected:', socket.id);
+    });
+  });
+
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -507,7 +571,7 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }

@@ -38,8 +38,8 @@ To keep token usage low while maintaining high AI comprehension, bldr generates 
 2. **LLM.md**: A summarized extraction of package.json dependencies, file extensions, and common patterns to define the "Architectural Convention".
 3. **Package-level CONTEXT.md**: Localized code summaries for individual services.
 
-## 4. Security & Isolation
+## 4. Security & Interception
 
+- **Dry Run Interceptor**: The frontend intercepts `write_file` and `replace_in_file` function calls when Dry Run is active, surfacing a UI modal to the user for approval.
 - **Path Jailing**: All file operations are sanitized to prevent directory traversal outside the `workspace/{id}` root.
 - **Preview Sandbox**: The preview iframe uses `sandbox="allow-scripts allow-forms allow-same-origin"` to isolate running code from the editor environment.
-- **Tool-Only Writes**: The AI cannot write code arbitrarily; every write must pass through the `ToolExecutor` which validates path and content constraints.

@@ -21,15 +21,21 @@ import {
   Activity,
   UploadCloud,
   Save,
-  Check
+  Check,
+  Terminal as TerminalIcon,
+  Users
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI, Type } from "@google/genai";
 import CodeMirror from '@uiw/react-codemirror';
 import { javascript } from '@codemirror/lang-javascript';
 import { oneDark } from '@codemirror/theme-one-dark';
+import { io, Socket } from 'socket.io-client';
 
 const ai = new GoogleGenAI({ apiKey: (process as any).env.GEMINI_API_KEY || '' });
+
+// Global socket instance
+let socket: Socket;
 
 // --- Types ---
 
@@ -61,10 +67,34 @@ export default function App() {
   const [isInfoOpen, setIsInfoOpen] = useState(false);
   const [planningMode, setPlanningMode] = useState(false);
   const [explanationRequest, setExplanationRequest] = useState<{ path: string; content: string } | null>(null);
+  const [terminalOutput, setTerminalOutput] = useState<string[]>(['bldr Terminal v1.0.0', 'Ready...']);
+  const [presenceCount, setPresenceCount] = useState(1);
 
   useEffect(() => {
     fetchProjects();
   }, []);
+
+  useEffect(() => {
+    if (selectedProjectId) {
+      if (!socket) {
+        socket = io();
+      }
+      socket.emit('join_project', selectedProjectId);
+      
+      socket.on('remote_chat', ({ message, userId }) => {
+        console.log(`Remote message from ${userId}:`, message);
+      });
+
+      socket.on('presence_update', (count) => {
+        setPresenceCount(count);
+      });
+
+      return () => {
+        socket.off('remote_chat');
+        socket.off('presence_update');
+      };
+    }
+  }, [selectedProjectId]);
 
   const fetchProjects = async () => {
     const res = await fetch('/api/projects');
@@ -157,8 +187,9 @@ export default function App() {
           >
             <Info className="w-5 h-5" />
           </button>
-          <div className="px-2 py-0.5 bg-mimo-bg rounded border border-mimo-border text-[9px] font-mono text-mimo-text-muted">
-            SYNCED
+          <div className="px-2 py-0.5 bg-mimo-bg rounded border border-mimo-border text-[9px] font-mono text-mimo-text-muted flex items-center gap-2">
+            <div className="w-1 h-1 rounded-full bg-green-500 animate-pulse" />
+            {presenceCount > 1 ? `${presenceCount} ACTIVE USERS` : 'SYNCED'}
           </div>
         </div>
       </header>
@@ -187,6 +218,8 @@ export default function App() {
                 setPlanningMode={setPlanningMode}
                 explanationRequest={explanationRequest}
                 onExplanated={() => setExplanationRequest(null)}
+                terminalOutput={terminalOutput}
+                setTerminalOutput={setTerminalOutput}
               />
             </motion.div>
           )}
@@ -215,7 +248,11 @@ export default function App() {
               exit={{ opacity: 0 }}
               className="absolute inset-0"
             >
-              <PreviewPanel projectId={selectedProjectId} />
+              <PreviewPanel 
+                projectId={selectedProjectId} 
+                terminalOutput={terminalOutput}
+                setTerminalOutput={setTerminalOutput}
+              />
             </motion.div>
           )}
         </AnimatePresence>
@@ -360,16 +397,20 @@ function TabButton({ active, onClick, icon, label }: { active: boolean, onClick:
 
 function ChatPanel({ 
   projectId, 
-  planningMode, 
-  setPlanningMode, 
-  explanationRequest, 
-  onExplanated 
+  planningMode,
+  setPlanningMode,
+  explanationRequest,
+  onExplanated,
+  terminalOutput,
+  setTerminalOutput
 }: { 
   projectId: string;
   planningMode: boolean;
   setPlanningMode: (val: boolean) => void;
   explanationRequest: { path: string; content: string } | null;
   onExplanated: () => void;
+  terminalOutput: string[];
+  setTerminalOutput: React.Dispatch<React.SetStateAction<string[]>>;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -522,6 +563,17 @@ function ChatPanel({
               },
               required: ['path']
             }
+          },
+          {
+            name: 'run_shell',
+            description: 'Execute a shell command inside the current project workspace and return the output (stdout/stderr)',
+            parameters: {
+              type: Type.OBJECT,
+              properties: { 
+                command: { type: Type.STRING, description: 'The shell command to execute (e.g. npm test, ls -R)' } 
+              },
+              required: ['command']
+            }
           }
         ]
       }];
@@ -564,6 +616,11 @@ function ChatPanel({
           currentActivities.push(act);
           setActivities([...currentActivities]);
           
+          if (call.name === 'run_shell') {
+            const { command } = call.args as any;
+            setTerminalOutput(prev => [...prev, `> ${command}`]);
+          }
+
           let toolResult;
           try {
             const res = await fetch(`/api/tools/${call.name}`, {
@@ -572,6 +629,10 @@ function ChatPanel({
               body: JSON.stringify({ projectId, ...call.args })
             });
             toolResult = await res.json();
+            if (call.name === 'run_shell') {
+              if (toolResult.stdout) setTerminalOutput(prev => [...prev, toolResult.stdout]);
+              if (toolResult.stderr) setTerminalOutput(prev => [...prev, `ERROR: ${toolResult.stderr}`]);
+            }
           } catch (err: any) {
             toolResult = { error: err.message };
           }
@@ -807,6 +868,24 @@ function FilesPanel({ projectId, onExplain }: { projectId: string, onExplain: (r
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [remoteEditBy, setRemoteEditBy] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (selectedFile && socket) {
+      const handleRemoteChange = ({ path, changes, userId }: any) => {
+        if (path === selectedFile) {
+          setEditedContent(changes);
+          setRemoteEditBy(userId.slice(0, 4));
+          setTimeout(() => setRemoteEditBy(null), 2000);
+        }
+      };
+
+      socket.on('remote_change', handleRemoteChange);
+      return () => {
+        socket.off('remote_change', handleRemoteChange);
+      };
+    }
+  }, [selectedFile]);
 
   useEffect(() => {
     const fetchFiles = async () => {
@@ -866,6 +945,18 @@ function FilesPanel({ projectId, onExplain }: { projectId: string, onExplain: (r
             </button>
             <span className="text-[10px] font-mono text-mimo-accent uppercase tracking-widest truncate max-w-[120px]">{selectedFile.split('/').pop()}</span>
             {hasUnsavedChanges && <div className="w-1.5 h-1.5 rounded-full bg-mimo-accent animate-pulse" />}
+            <AnimatePresence>
+              {remoteEditBy && (
+                <motion.div 
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0 }}
+                  className="px-1.5 py-0.5 rounded bg-green-500/20 text-green-500 text-[8px] font-mono border border-green-500/30"
+                >
+                  USER {remoteEditBy} EDITING...
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
           <div className="flex items-center gap-2">
             <button 
@@ -903,6 +994,9 @@ function FilesPanel({ projectId, onExplain }: { projectId: string, onExplain: (r
               onChange={(value) => {
                 setEditedContent(value);
                 setHasUnsavedChanges(value !== content);
+                if (socket && selectedFile) {
+                  socket.emit('editor_change', { projectId, path: selectedFile, changes: value });
+                }
               }}
               basicSetup={{
                 lineNumbers: true,
@@ -1009,7 +1103,7 @@ interface FileTreeNodeProps {
   node: TreeNode;
   onSelect: (path: string) => void;
   level: number;
-  key?: string;
+  key?: any;
 }
 
 function FileTreeNode({ node, onSelect, level }: FileTreeNodeProps) {
@@ -1172,7 +1266,7 @@ function InfoPanel({ onClose }: { onClose: () => void }) {
               >
                 <FAQItem question="How many repos can I connect?" answer="You can connect as many as your disk quota allows. bldr organizes them in nested directories for clean AI vision." />
                 <FAQItem question="Is the AI deterministic?" answer="Yes. We use strict tool definitions (CCC patterns) to ensure the AI follows your architectural rules and product requirements." />
-                <FAQItem question="Can I edit files manually?" answer="Not currently in the mobile view, but you can use the AI assistant to perform precise line-by-line replacements." />
+                <FAQItem question="Can I edit files manually?" answer="Yes! Head to the Files tab and select a file to open the CodeMirror editor. You can save changes directly to the workspace." />
                 <FAQItem question="What is Dry Run mode?" answer="When enabled, the assistant must show you a diff of any proposed file changes before they are committed to disk." />
               </motion.div>
             )}
@@ -1234,8 +1328,46 @@ function FAQItem({ question, answer }: { question: string, answer: string }) {
   );
 }
 
-function PreviewPanel({ projectId }: { projectId: string }) {
+function PreviewPanel({ 
+  projectId, 
+  terminalOutput, 
+  setTerminalOutput 
+}: { 
+  projectId: string;
+  terminalOutput: string[];
+  setTerminalOutput: React.Dispatch<React.SetStateAction<string[]>>;
+}) {
   const [key, setKey] = useState(0);
+  const [command, setCommand] = useState('');
+  const terminalRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (terminalRef.current) {
+      terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
+    }
+  }, [terminalOutput]);
+
+  const handleRunCommand = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!command.trim()) return;
+    
+    setTerminalOutput(prev => [...prev, `> ${command}`]);
+    const cmd = command;
+    setCommand('');
+
+    try {
+      const res = await fetch('/api/tools/run_shell', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId, command: cmd })
+      });
+      const data = await res.json();
+      if (data.stdout) setTerminalOutput(prev => [...prev, data.stdout]);
+      if (data.stderr) setTerminalOutput(prev => [...prev, `ERROR: ${data.stderr}`]);
+    } catch (err: any) {
+      setTerminalOutput(prev => [...prev, `SYSTEM ERROR: ${err.message}`]);
+    }
+  };
 
   return (
     <div className="flex flex-col h-full bg-mimo-bg">
@@ -1246,26 +1378,62 @@ function PreviewPanel({ projectId }: { projectId: string }) {
             <div className="w-2.5 h-2.5 rounded-full bg-[#ffbd2e]" />
             <div className="w-2.5 h-2.5 rounded-full bg-[#27c93f]" />
           </div>
-          <div className="text-[10px] font-mono text-mimo-text-muted uppercase tracking-widest">Localhost:3000</div>
+          <div className="text-[10px] font-mono text-mimo-text-muted uppercase tracking-widest">Sandbox Runtime</div>
         </div>
         <button 
           onClick={() => setKey(k => k + 1)}
-          className="p-1.5 hover:bg-white/5 rounded-lg transition-colors"
+          className="p-1.5 hover:bg-white/5 rounded-lg transition-colors flex items-center gap-2 text-[10px] font-mono text-mimo-accent"
         >
-          <Loader2 className={`w-4 h-4 text-mimo-text-muted ${key > 0 ? 'animate-spin' : ''}`} />
+          <Loader2 className={`w-3 h-3 ${key > 0 ? 'animate-spin' : ''}`} />
+          RELOAD
         </button>
       </header>
-      <div className="flex-1 bg-white m-6 rounded shadow-[0_35px_60px_-15px_rgba(0,0,0,0.8)] border border-white/5 overflow-hidden relative">
-        <iframe 
-          key={key}
-          src={`/preview/${projectId}/index.html`}
-          className="w-full h-full border-none"
-          title="Project Preview"
-          sandbox="allow-scripts allow-forms allow-same-origin"
-        />
-        <div className="absolute bottom-4 left-4 right-4 bg-black/90 backdrop-blur border border-white/10 rounded px-3 py-2 text-[10px] font-mono text-green-500 shadow-2xl">
-          [Preview] Live environment ready
-        </div>
+      <div className="flex-1 flex flex-col min-h-0 bg-mimo-bg">
+         {/* Top Half: Browser */}
+         <div className="flex-[3] bg-white m-3 sm:m-6 mb-3 rounded shadow-2xl border border-white/5 overflow-hidden relative min-h-[150px]">
+           <iframe 
+             key={key}
+             src={`/preview/${projectId}/index.html`}
+             className="w-full h-full border-none"
+             title="Project Preview"
+             sandbox="allow-scripts allow-forms allow-same-origin"
+           />
+           <div className="absolute top-2 right-2 px-2 py-0.5 bg-black/50 text-[8px] font-mono text-green-400 rounded backdrop-blur">
+             LIVE
+           </div>
+         </div>
+
+         {/* Bottom Half: Terminal */}
+         <div className="flex-[2] bg-black m-3 sm:m-6 mt-0 rounded border border-mimo-border flex flex-col overflow-hidden min-h-[150px]">
+            <div className="px-4 py-2 border-b border-mimo-border bg-black/50 flex items-center gap-2">
+              <TerminalIcon className="w-3 h-3 text-mimo-accent" />
+              <span className="text-[9px] font-mono uppercase tracking-widest text-mimo-text-muted font-bold">bldr-term-v1</span>
+              <div className="ml-auto flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                <span className="text-[8px] font-mono text-mimo-text-muted">ACTIVE</span>
+              </div>
+            </div>
+            <div 
+              ref={terminalRef}
+              className="flex-1 overflow-y-auto p-4 font-mono text-[10px] text-green-500/90 space-y-1 selection:bg-green-500/20"
+            >
+              {terminalOutput.map((line, i) => (
+                <div key={i} className="whitespace-pre-wrap break-all border-l border-green-500/10 pl-2">
+                  {line}
+                </div>
+              ))}
+            </div>
+            <form onSubmit={handleRunCommand} className="p-3 bg-black/50 border-t border-mimo-border flex items-center gap-3">
+              <span className="text-mimo-accent font-bold">$</span>
+              <input 
+                type="text" 
+                value={command}
+                onChange={(e) => setCommand(e.target.value)}
+                placeholder="npm run dev..."
+                className="flex-1 bg-transparent border-none focus:outline-none text-[10px] font-mono text-white placeholder:text-white/20"
+              />
+            </form>
+         </div>
       </div>
     </div>
   );

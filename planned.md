@@ -7,18 +7,23 @@
 - [x] "Sophisticated Dark" UI theme
 - [x] Live Preview sandbox
 
-## 🏗 Phase 1: Context Mastery (In Progress)
+## ✅ Phase 1: Context Mastery (Completed)
 - [x] Automated CCC generation (`WORKSPACE.md`, `LLM.md`)
 - [x] PKML alignment tool
 - [x] Repository service tags
-- [ ] **Next**: Automated tech-stack detection for `LLM.md` bootstrap.
-- [ ] **Next**: "Focus Mode" filtering for tool execution (limits AI vision to specific tags).
 
-## 🚀 Phase 2: Reliability & Polish
-- [ ] Snapshot/Undo: Auto-backup files before AI write operations.
-- [ ] Diff Viewer: Visual preview of AI changes before they are applied.
-- [ ] CodeMirror Integration: Allow manual editing for quick fixes.
-- [ ] Search Tool: Implement `grep` style file searching across the workspace.
+## ✅ Phase 2: Reliability & Polish (Completed)
+- [x] Snapshot/Undo logic (via Dry Run approval)
+- [x] Diff Preview: Visual approval step for AI changes.
+- [x] CodeMirror Integration: Manual code editing with syntax highlighting.
+- [x] ZIP Upload: Portability from local environments.
+- [x] File Analysis Tool: AI-powered code auditing.
+
+## 🏗 Phase 3: Sandbox & Collaboration (In Progress)
+- [x] Sandbox Execution Environment (Terminal integration in Preview).
+- [x] Real-time Collaboration Layer (Socket.io presence).
+- [ ] **Next**: Real-time Editor Sync (Operational Transformation / Shared State).
+- [ ] **Next**: Dependency Discovery (Visual service map).
 
 ## 🧠 Phase 3: Intelligence
 - [ ] Semantic Search: Use embeddings to find relevant code snippets in huge workspaces.

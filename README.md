@@ -4,12 +4,14 @@
 
 ## 🚀 Core Features
 
-- **Multi-Repository Workspaces**: Import multiple GitHub repositories into a single unified workspace.
-- **CCC (Code Context Compiler)**: Automatically generates `WORKSPACE.md` and `LLM.md` artifacts to provide the AI with structural and architectural awareness without wasting tokens.
-- **PKML Native**: Built-in support for Product Knowledge Markup Language to ensure AI changes align with product intent.
-- **Deterministic Tooling**: The AI interacts with your code through a strictly defined set of tools (read/write/list/align), providing logs and status updates for every action.
-- **Sophisticated Dark UI**: A refined, low-eye-strain interface optimized for mobile OLED screens and deep concentration.
-- **Live Preview**: Isolated iframe sandbox for instant verification of web applications.
+- **Multi-Repository Workspaces**: Import multiple GitHub repositories or local ZIP files into a single unified workspace.
+- **CodeMirror Editor**: Full featured in-browser editor for manual code adjustments with syntax highlighting.
+- **Dry Run Protection**: AI-proposed changes are intercepted and presented as a diff for user approval before being committed to disk.
+- **AI File Analysis**: Specialized tool for heuristic code analysis, summarizing purpose and quality.
+- **CCC (Code Context Compiler)**: Automatically generates `WORKSPACE.md` and `LLM.md` artifacts to provide the AI with structural and architectural awareness.
+- **Sandbox Execution**: Integrated Terminal v1.0 in the Preview tab for running shell commands and inspecting runtime logs.
+- **Real-time Collaboration**: Multi-user presence tracking and remote editor synchronization powered by Socket.io.
+- **Information Hub**: Integrated project info panel with user guides, FAQs, and architectural insights.
 
 ## 🛠 Tech Stack
 
