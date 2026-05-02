@@ -45,3 +45,7 @@ To keep token usage low while maintaining high AI comprehension, bldr generates 
 ## 6. Security & Interception
 - **Sandbox Guard**: Injects a specialized error-tracking script into served HTML previews, piping runtime exceptions back to the editor via `postMessage` for immediate debugging.
 - **Dry Run**: AI changes are staged in memory and presented as diffs, requiring explicit JSON approval before disk commit.
+
+## 7. Architecture Visualization
+- **Dependency Mapper**: Scans JS/TS imports periodically to construct a D3 directed force-graph of the workspace.
+- **Health Watchdog**: Background process that executes workspace lints and build checks, surfacing "Healthy/Warning" states in the UI header.

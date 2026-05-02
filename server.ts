@@ -514,6 +514,65 @@ app.post('/api/tools/audit_files', async (req, res) => {
   }
 });
 
+app.post('/api/tools/analyze_dependencies', async (req, res) => {
+  const { projectId } = req.body;
+  try {
+    const projectDir = path.join(WORKSPACE_ROOT, projectId);
+    const files = db.prepare('SELECT path FROM files WHERE project_id = ?').all(projectId) as any[];
+    
+    // Filter for code files
+    const codeFiles = files.filter(f => /\.(ts|tsx|js|jsx)$/.test(f.path));
+    
+    const nodes: any[] = [];
+    const links: any[] = [];
+    const nodeMap = new Map();
+
+    for (const f of codeFiles) {
+      const fullPath = path.join(projectDir, f.path);
+      try {
+        const content = await fs.readFile(fullPath, 'utf-8');
+        const repoName = f.path.split('/')[0] || 'root';
+        
+        if (!nodeMap.has(f.path)) {
+          nodes.push({ id: f.path, group: repoName });
+          nodeMap.set(f.path, true);
+        }
+
+        // Match import lines: import ... from '...' or import '...'
+        // Simple regex: could be improved but good for a start
+        const importRegex = /(?:import|from)\s+['"]([^'"]+)['"]/g;
+        let match;
+        while ((match = importRegex.exec(content)) !== null) {
+          const target = match[1];
+          if (target.startsWith('.')) {
+            // Resolve relative path
+            const resolved = path.join(path.dirname(f.path), target);
+            // Try to find matching file in project
+            const targetFile = codeFiles.find(cf => 
+              cf.path === resolved || 
+              cf.path === resolved + '.ts' || 
+              cf.path === resolved + '.tsx' ||
+              cf.path === resolved + '.js' ||
+              cf.path === resolved + '/index.ts'
+            );
+
+            if (targetFile) {
+              links.push({ source: f.path, target: targetFile.path, type: 'internal' });
+            }
+          } else {
+            // External dependency
+            links.push({ source: f.path, target: target, type: 'external' });
+          }
+        }
+      } catch (e) {}
+    }
+
+    res.json({ nodes, links });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/tools/run_shell', async (req, res) => {
   const { projectId, command } = req.body;
   try {

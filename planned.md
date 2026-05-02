@@ -29,7 +29,8 @@
 - [x] AI Code Review (Bug detection, style audit).
 - [ ] **Next**: Semantic Search (Embeddings integration).
 
-## 🧠 Phase 5: Advanced Visibility (Upcoming)
-- [ ] Semantic Search: Use embeddings to find relevant code snippets in huge workspaces.
-- [ ] Dependency Mapping: Analyze imports to build a visual graph of service relationships.
-- [ ] PR Simulation: AI generates a summary of its changes in a format ready for GitHub.
+## ✅ Phase 5: Advanced Visibility (Completed)
+- [x] Semantic Search: Use embeddings to find relevant code snippets (Mocked as Regex/Heuristic).
+- [x] Dependency Mapping: Analyze imports to build a visual graph of service relationships.
+- [x] Automated Health Checks: Periodic lints/build commands reporting to UI.
+- [ ] **Next**: PR Simulation: AI generates a summary of its changes in a format ready for GitHub.
