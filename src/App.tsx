@@ -10,7 +10,16 @@ import {
   FileText, 
   Send,
   Database,
-  ArrowLeft
+  ArrowLeft,
+  Info,
+  X,
+  ChevronDown,
+  Folder,
+  HelpCircle,
+  Code,
+  ExternalLink,
+  Activity,
+  UploadCloud
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -44,6 +53,9 @@ export default function App() {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [isInfoOpen, setIsInfoOpen] = useState(false);
+  const [planningMode, setPlanningMode] = useState(false);
+  const [explanationRequest, setExplanationRequest] = useState<{ path: string; content: string } | null>(null);
 
   useEffect(() => {
     fetchProjects();
@@ -134,11 +146,24 @@ export default function App() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <button 
+            onClick={() => setIsInfoOpen(true)}
+            className="p-2 rounded-full hover:bg-white/5 active:bg-white/10 transition-colors text-mimo-text-muted hover:text-mimo-accent"
+          >
+            <Info className="w-5 h-5" />
+          </button>
           <div className="px-2 py-0.5 bg-mimo-bg rounded border border-mimo-border text-[9px] font-mono text-mimo-text-muted">
             SYNCED
           </div>
         </div>
       </header>
+
+      {/* Info Panel Overlay */}
+      <AnimatePresence>
+        {isInfoOpen && (
+          <InfoPanel onClose={() => setIsInfoOpen(false)} />
+        )}
+      </AnimatePresence>
 
       {/* Main Content Area */}
       <main className="flex-1 relative overflow-hidden bg-mimo-bg">
@@ -151,7 +176,13 @@ export default function App() {
               exit={{ opacity: 0 }}
               className="absolute inset-0"
             >
-              <ChatPanel projectId={selectedProjectId} />
+              <ChatPanel 
+                projectId={selectedProjectId} 
+                planningMode={planningMode} 
+                setPlanningMode={setPlanningMode}
+                explanationRequest={explanationRequest}
+                onExplanated={() => setExplanationRequest(null)}
+              />
             </motion.div>
           )}
           {activeTab === 'files' && (
@@ -162,7 +193,13 @@ export default function App() {
               exit={{ opacity: 0 }}
               className="absolute inset-0"
             >
-              <FilesPanel projectId={selectedProjectId} />
+              <FilesPanel 
+                projectId={selectedProjectId} 
+                onExplain={(req) => {
+                  setExplanationRequest(req);
+                  setActiveTab('chat');
+                }}
+              />
             </motion.div>
           )}
           {activeTab === 'preview' && (
@@ -209,6 +246,31 @@ export default function App() {
 function ImportSection({ onImport, isImporting }: { onImport: (url: string, name: string) => void, isImporting: boolean }) {
   const [url, setUrl] = useState('');
   const [name, setName] = useState('');
+  const [isZipping, setIsZipping] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleZipUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsZipping(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('name', name || file.name.replace('.zip', ''));
+
+    try {
+      const res = await fetch('/api/import/zip', {
+        method: 'POST',
+        body: formData
+      });
+      const data = await res.json();
+      if (data.id) {
+        window.location.reload();
+      }
+    } finally {
+      setIsZipping(false);
+    }
+  };
 
   return (
     <div className="bg-mimo-panel rounded-xl shadow-2xl border border-mimo-border p-6 space-y-6">
@@ -217,21 +279,11 @@ function ImportSection({ onImport, isImporting }: { onImport: (url: string, name
           <Github className="text-mimo-accent w-6 h-6" />
         </div>
         <div>
-          <h3 className="font-serif italic text-lg leading-tight">GitHub Import</h3>
-          <p className="text-[10px] font-mono text-mimo-text-muted uppercase tracking-wider">Deterministic AI Sync</p>
+          <h3 className="font-serif italic text-lg leading-tight">Project Import</h3>
+          <p className="text-[10px] font-mono text-mimo-text-muted uppercase tracking-wider">GitHub or Local ZIP</p>
         </div>
       </div>
       <div className="space-y-4">
-        <div className="space-y-1">
-          <label className="text-[9px] font-mono text-mimo-text-muted ml-2">REPOSITORY URL</label>
-          <input 
-            type="text" 
-            placeholder="https://github.com/..." 
-            className="w-full px-4 py-3 bg-mimo-bg border border-mimo-border rounded-lg focus:outline-none focus:border-mimo-accent transition-all text-sm font-mono text-mimo-text"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-          />
-        </div>
         <div className="space-y-1">
           <label className="text-[9px] font-mono text-mimo-text-muted ml-2">WORKSPACE ID</label>
           <input 
@@ -242,13 +294,45 @@ function ImportSection({ onImport, isImporting }: { onImport: (url: string, name
             onChange={(e) => setName(e.target.value)}
           />
         </div>
-        <button 
-          onClick={() => onImport(url, name)}
-          disabled={!url || isImporting}
-          className="w-full py-4 bg-mimo-accent text-mimo-bg rounded-full font-bold uppercase text-xs tracking-widest hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-30 disabled:grayscale"
-        >
-          {isImporting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Create Sandbox'}
-        </button>
+
+        <div className="space-y-2 pt-2 border-t border-mimo-border/50">
+          <div className="space-y-1">
+            <label className="text-[9px] font-mono text-mimo-text-muted ml-2">GITHUB REPOSITORY URL</label>
+            <input 
+              type="text" 
+              placeholder="https://github.com/..." 
+              className="w-full px-4 py-3 bg-mimo-bg border border-mimo-border rounded-lg focus:outline-none focus:border-mimo-accent transition-all text-sm font-mono text-mimo-text"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+            />
+          </div>
+          <button 
+            onClick={() => onImport(url, name)}
+            disabled={!url || isImporting}
+            className="w-full py-4 bg-mimo-accent text-mimo-bg rounded-full font-bold uppercase text-xs tracking-widest hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-30 disabled:grayscale"
+          >
+            {isImporting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Import from GitHub'}
+          </button>
+        </div>
+
+        <div className="relative border-t border-mimo-border/50 pt-4 text-center">
+           <span className="absolute -top-2 left-1/2 -translate-x-1/2 bg-mimo-panel px-2 text-[9px] font-mono text-mimo-text-muted">OR</span>
+           <input 
+              type="file" 
+              ref={fileInputRef}
+              onChange={handleZipUpload}
+              accept=".zip"
+              className="hidden"
+           />
+           <button 
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isZipping}
+              className="w-full py-4 border border-mimo-border rounded-full font-bold uppercase text-[10px] tracking-widest text-mimo-text-muted hover:border-mimo-accent/50 hover:text-mimo-text active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+           >
+              {isZipping ? <Loader2 className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}
+              {isZipping ? 'Extracting...' : 'Upload PROJECT ZIP'}
+           </button>
+        </div>
       </div>
     </div>
   );
@@ -269,7 +353,19 @@ function TabButton({ active, onClick, icon, label }: { active: boolean, onClick:
   );
 }
 
-function ChatPanel({ projectId }: { projectId: string }) {
+function ChatPanel({ 
+  projectId, 
+  planningMode, 
+  setPlanningMode, 
+  explanationRequest, 
+  onExplanated 
+}: { 
+  projectId: string;
+  planningMode: boolean;
+  setPlanningMode: (val: boolean) => void;
+  explanationRequest: { path: string; content: string } | null;
+  onExplanated: () => void;
+}) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -279,6 +375,14 @@ function ChatPanel({ projectId }: { projectId: string }) {
   const [dryRunEnabled, setDryRunEnabled] = useState(false);
   const [pendingWrite, setPendingWrite] = useState<{ call: any, resolve: (approved: boolean) => void } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (explanationRequest) {
+      const prompt = `Can you explain the following file: \`${explanationRequest.path}\`?\n\nCode:\n\`\`\`\n${explanationRequest.content}\n\`\`\``;
+      handleSend(prompt);
+      onExplanated();
+    }
+  }, [explanationRequest]);
 
   useEffect(() => {
     const fetchRepos = async () => {
@@ -295,12 +399,13 @@ function ChatPanel({ projectId }: { projectId: string }) {
     }
   }, [messages, isTyping, activities]);
 
-  const handleSend = async () => {
-    if (!input.trim() || isTyping) return;
+  const handleSend = async (overrideInput?: string) => {
+    const textToSend = overrideInput || input;
+    if (!textToSend.trim() || isTyping) return;
 
-    const userMessage: Message = { role: 'user', parts: [{ text: input }] };
+    const userMessage: Message = { role: 'user', parts: [{ text: textToSend }] };
     setMessages(prev => [...prev, userMessage]);
-    setInput('');
+    if (!overrideInput) setInput('');
     setIsTyping(true);
     setActivities([]);
 
@@ -309,7 +414,7 @@ function ChatPanel({ projectId }: { projectId: string }) {
         role: m.role, 
         parts: m.parts 
       }));
-      contents.push({ role: 'user', parts: [{ text: input }] });
+      contents.push({ role: 'user', parts: [{ text: textToSend }] });
 
       // Add project context if it's the first message
       if (messages.length === 0) {
@@ -340,8 +445,12 @@ function ChatPanel({ projectId }: { projectId: string }) {
           if (llmData.content) fullContext += `### ARCHITECTURAL CONVENTIONS (LLM.md)\n${llmData.content}\n\n`;
           if (pkmlData.content) fullContext += `### PRODUCT KNOWLEDGE (PKML.md)\n${pkmlData.content}\n\n`;
 
+          const planningInfo = planningMode ? "\n\nCRITICAL: PLANNING MODE ACTIVE. DO NOT perform file writes or modifications without explicit request. Focus on architectural discussion and planning." : "";
+
           if (fullContext) {
-            contents[0].parts.unshift({ text: `bldr SYSTEM CONTEXT (CCC + PKML Mode):\n\n${fullContext}\n--- USER GOAL ---` });
+            contents[0].parts.unshift({ text: `bldr SYSTEM CONTEXT (CCC + PKML Mode)${planningInfo}:\n\n${fullContext}\n--- USER GOAL ---` });
+          } else if (planningMode) {
+            contents[0].parts.unshift({ text: `bldr SYSTEM CONTEXT: ${planningInfo}\n--- USER GOAL ---` });
           }
         } catch (e) {
           // Ignore if WORKSPACE.md doesn't exist
@@ -575,6 +684,14 @@ function ChatPanel({ projectId }: { projectId: string }) {
       <div className="p-4 px-6 border-t border-mimo-border bg-mimo-bg">
         <div className="flex gap-2 mb-3 items-center overflow-x-auto pb-2 no-scrollbar">
           <button 
+            onClick={() => setPlanningMode(!planningMode)}
+            className={`px-3 py-1 rounded-full text-[9px] font-mono border transition-all shrink-0 flex items-center gap-2 ${planningMode ? 'bg-mimo-accent/20 text-mimo-accent border-mimo-accent/50' : 'border-mimo-border text-mimo-text-muted hover:border-mimo-accent/50'}`}
+          >
+            <Activity className="w-3 h-3" />
+            PLANNING: {planningMode ? 'ON' : 'OFF'}
+          </button>
+          <div className="w-px h-4 bg-mimo-border mx-1 shrink-0" />
+          <button 
             onClick={() => setDryRunEnabled(!dryRunEnabled)}
             className={`px-3 py-1 rounded-full text-[9px] font-mono border transition-all shrink-0 flex items-center gap-2 ${dryRunEnabled ? 'bg-red-500/20 text-red-500 border-red-500/50' : 'border-mimo-border text-mimo-text-muted hover:border-mimo-accent/50'}`}
           >
@@ -677,7 +794,7 @@ function ChatPanel({ projectId }: { projectId: string }) {
   );
 }
 
-function FilesPanel({ projectId }: { projectId: string }) {
+function FilesPanel({ projectId, onExplain }: { projectId: string, onExplain: (req: { path: string; content: string }) => void }) {
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [content, setContent] = useState<string | null>(null);
@@ -704,22 +821,33 @@ function FilesPanel({ projectId }: { projectId: string }) {
     }
   };
 
+  const tree = buildTree(files);
+
   if (selectedFile) {
     return (
       <div className="flex flex-col h-full bg-mimo-bg">
-        <header className="px-6 h-12 border-b border-mimo-border flex items-center gap-3 shrink-0 bg-mimo-panel">
-          <button onClick={() => setSelectedFile(null)} className="p-1 hover:bg-white/5 rounded">
-            <ArrowLeft className="w-4 h-4" />
+        <header className="px-6 h-12 border-b border-mimo-border flex items-center justify-between shrink-0 bg-mimo-panel sticky top-0 z-20">
+          <div className="flex items-center gap-3">
+            <button onClick={() => setSelectedFile(null)} className="p-1 hover:bg-white/5 rounded text-mimo-accent">
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+            <span className="text-[10px] font-mono text-mimo-accent uppercase tracking-widest truncate max-w-[120px]">{selectedFile.split('/').pop()}</span>
+          </div>
+          <button 
+            onClick={() => onExplain({ path: selectedFile, content: content || '' })}
+            className="px-3 py-1 bg-white/5 border border-mimo-border hover:border-mimo-accent hover:text-mimo-accent rounded-full text-[9px] font-mono transition-all flex items-center gap-2"
+          >
+            <HelpCircle className="w-3 h-3" />
+            AI EXPLAIN
           </button>
-          <span className="text-[10px] font-mono text-mimo-accent uppercase tracking-widest">{selectedFile.split('/').pop()}</span>
         </header>
-        <div className="flex-1 overflow-auto p-6">
+        <div className="flex-1 overflow-auto p-4 sm:p-6">
           {isLoading ? (
             <div className="h-full flex items-center justify-center">
               <Loader2 className="animate-spin text-mimo-accent" />
             </div>
           ) : (
-            <pre className="text-xs font-mono whitespace-pre text-mimo-text leading-relaxed">
+            <pre className="text-[11px] sm:text-xs font-mono whitespace-pre text-mimo-text leading-relaxed">
               {content}
             </pre>
           )}
@@ -728,22 +856,18 @@ function FilesPanel({ projectId }: { projectId: string }) {
     );
   }
 
-  const groupedFiles = files.reduce((acc: any, file: any) => {
-    const repoName = file.repo_name || 'Project Root';
-    if (!acc[repoName]) acc[repoName] = [];
-    acc[repoName].push(file);
-    return acc;
-  }, {});
-
   return (
     <div className="h-full flex flex-col bg-mimo-bg">
-      <div className="px-6 py-4 border-b border-mimo-border flex items-center justify-between">
-        <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-mimo-text-muted">Workspace Inventory</span>
+      <div className="px-6 py-4 border-b border-mimo-border flex items-center justify-between bg-mimo-panel shrink-0">
+        <div className="flex items-center gap-2">
+          <FolderCode className="w-3 h-3 text-mimo-accent" />
+          <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-mimo-text-muted">Workspace Inventory</span>
+        </div>
         <button 
           onClick={() => {
             const url = prompt('GitHub Repository URL:');
             const name = prompt('Service Name (e.g. auth-api):');
-            if (url) {
+            if (url && name) {
               fetch('/api/import/github', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -751,42 +875,297 @@ function FilesPanel({ projectId }: { projectId: string }) {
               }).then(() => window.location.reload());
             }
           }}
-          className="px-3 py-1 bg-mimo-accent text-mimo-bg rounded-full text-[9px] font-bold uppercase tracking-tighter hover:opacity-90 active:scale-95 transition-all"
+          className="px-3 py-1 bg-mimo-accent text-mimo-bg rounded-full text-[9px] font-bold uppercase tracking-tighter hover:opacity-90 active:scale-95 transition-all shadow-[0_4px_10px_rgba(242,125,38,0.2)]"
         >
           Attach Repo
         </button>
       </div>
       <div className="flex-1 overflow-y-auto p-4">
         {files.length === 0 ? (
-          <div className="p-12 text-center text-mimo-text-muted font-mono text-xs opacity-50 uppercase">No repositories synced.</div>
+          <div className="h-40 flex items-center justify-center text-center px-12">
+            <p className="text-mimo-text-muted font-mono text-[10px] opacity-50 uppercase tracking-widest">No repositories synced. Use the button above to import your first service.</p>
+          </div>
         ) : (
-          <div className="space-y-6">
-            {Object.entries(groupedFiles).map(([repoName, repoFiles]: [string, any]) => (
-              <div key={repoName} className="space-y-2">
-                <div className="flex items-center gap-2 px-2 opacity-50">
-                  <span className="text-xs">📁</span>
-                  <span className="text-[10px] font-mono font-bold uppercase tracking-tight">{repoName}</span>
-                </div>
-                <div className="space-y-1 pl-2 border-l border-mimo-border ml-2">
-                  {repoFiles.map((file: any) => (
-                    <button
-                      key={file.path}
-                      onClick={() => handleOpenFile(file.path)}
-                      className="w-full px-4 py-2 flex items-center gap-4 hover:bg-white/5 transition-all text-left rounded group"
-                    >
-                      <span className="text-sm opacity-40 group-hover:text-mimo-accent group-hover:opacity-100 transition-all font-mono">📄</span>
-                      <span className="text-xs font-mono text-mimo-text-muted group-hover:text-mimo-text truncate">
-                        {file.path.split('/').pop()}
-                      </span>
-                      <span className="ml-auto text-[9px] font-mono text-mimo-text-muted opacity-30">{(file.size / 1024).toFixed(1)} KB</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
+          <div className="space-y-1">
+             <FileTree nodes={tree.children || {}} onSelect={handleOpenFile} level={0} />
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+interface TreeNode {
+  name: string;
+  path: string;
+  size?: number;
+  children?: Record<string, TreeNode>;
+}
+
+function buildTree(files: FileEntry[]): TreeNode {
+  const root: TreeNode = { name: 'root', path: '', children: {} };
+  
+  files.forEach(file => {
+    const parts = file.path.split('/');
+    let current = root;
+    
+    parts.forEach((part, i) => {
+      if (!current.children) current.children = {};
+      if (!current.children[part]) {
+        current.children[part] = {
+          name: part,
+          path: parts.slice(0, i + 1).join('/'),
+          children: i < parts.length - 1 ? {} : undefined,
+          size: i === parts.length - 1 ? file.size : undefined
+        };
+      }
+      current = current.children[part];
+    });
+  });
+  
+  return root;
+}
+
+function FileTree({ nodes, onSelect, level }: { nodes: Record<string, TreeNode>, onSelect: (path: string) => void, level: number }) {
+  return (
+    <>
+      {Object.values(nodes).sort((a, b) => {
+        // Folders first
+        if (a.children && !b.children) return -1;
+        if (!a.children && b.children) return 1;
+        return a.name.localeCompare(b.name);
+      }).map(node => (
+        <FileTreeNode key={node.path} node={node} onSelect={onSelect} level={level} />
+      ))}
+    </>
+  );
+}
+
+interface FileTreeNodeProps {
+  node: TreeNode;
+  onSelect: (path: string) => void;
+  level: number;
+  key?: string;
+}
+
+function FileTreeNode({ node, onSelect, level }: FileTreeNodeProps) {
+  const [isOpen, setIsOpen] = useState(level === 0); // Open top level by default
+  const isFolder = !!node.children;
+
+  return (
+    <div className="select-none">
+      <button
+        onClick={() => {
+          if (isFolder) setIsOpen(!isOpen);
+          else onSelect(node.path);
+        }}
+        className={`w-full flex items-center gap-2 px-2 py-1.5 rounded transition-all group ${
+          isFolder ? 'hover:bg-white/5' : 'hover:bg-mimo-accent/10'
+        }`}
+        style={{ paddingLeft: `${(level + 1) * 12}px` }}
+      >
+        <span className="shrink-0 flex items-center justify-center w-4">
+          {isFolder ? (
+            <motion.div animate={{ rotate: isOpen ? 90 : 0 }}>
+              <ChevronRight className={`w-3.5 h-3.5 ${isOpen ? 'text-mimo-accent' : 'text-mimo-text-muted opacity-50'}`} />
+            </motion.div>
+          ) : (
+            <div className="w-1 h-1 bg-mimo-accent/30 rounded-full group-hover:bg-mimo-accent transition-colors" />
+          )}
+        </span>
+        {isFolder ? <Folder className="w-3.5 h-3.5 text-mimo-accent/80" /> : <FileText className="w-3.5 h-3.5 text-mimo-text-muted opacity-40 group-hover:text-mimo-accent group-hover:opacity-100 transition-all" />}
+        <span className={`text-[11px] font-mono truncate transition-colors ${
+          isFolder ? 'text-mimo-text font-bold' : 'text-mimo-text-muted group-hover:text-mimo-text'
+        }`}>
+          {node.name}
+        </span>
+        {!isFolder && node.size && (
+          <span className="ml-auto text-[8px] font-mono text-mimo-text-muted opacity-0 group-hover:opacity-40 transition-opacity whitespace-nowrap">
+            {(node.size / 1024).toFixed(1)} KB
+          </span>
+        )}
+      </button>
+      {isFolder && (
+        <AnimatePresence>
+          {isOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="overflow-hidden border-l border-mimo-border/30 ml-2.5"
+            >
+              <FileTree nodes={node.children || {}} onSelect={onSelect} level={level + 1} />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      )}
+    </div>
+  );
+}
+
+function InfoPanel({ onClose }: { onClose: () => void }) {
+  const [activeTab, setActiveTab] = useState<'about' | 'guide' | 'faq'>('about');
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-end sm:items-center justify-center p-4"
+    >
+      <motion.div 
+        initial={{ y: '100%' }}
+        animate={{ y: 0 }}
+        exit={{ y: '100%' }}
+        className="bg-mimo-panel border border-mimo-border w-full max-w-lg rounded-t-3xl sm:rounded-3xl overflow-hidden flex flex-col max-h-[85vh] shadow-[0_0_50px_rgba(0,0,0,0.5)]"
+      >
+        <div className="p-4 px-6 border-b border-mimo-border flex items-center justify-between bg-black/20">
+          <div className="flex items-center gap-3">
+             <div className="w-8 h-8 rounded bg-mimo-accent/10 border border-mimo-accent/20 flex items-center justify-center">
+               <HelpCircle className="w-4 h-4 text-mimo-accent" />
+             </div>
+             <span className="text-xs font-mono font-bold uppercase tracking-widest">Project Info</span>
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-white/5 rounded-full transition-colors">
+            <X className="w-5 h-5 text-mimo-text-muted" />
+          </button>
+        </div>
+
+        <div className="flex border-b border-mimo-border bg-black/10">
+          <button 
+            onClick={() => setActiveTab('about')}
+            className={`flex-1 py-3 text-[10px] font-mono font-bold uppercase tracking-widest transition-all ${activeTab === 'about' ? 'text-mimo-accent bg-white/5 shadow-[inset_0_-2px_0_var(--color-mimo-accent)]' : 'text-mimo-text-muted hover:text-mimo-text'}`}
+          >
+            What is bldr
+          </button>
+          <button 
+            onClick={() => setActiveTab('guide')}
+            className={`flex-1 py-3 text-[10px] font-mono font-bold uppercase tracking-widest transition-all ${activeTab === 'guide' ? 'text-mimo-accent bg-white/5 shadow-[inset_0_-2px_0_var(--color-mimo-accent)]' : 'text-mimo-text-muted hover:text-mimo-text'}`}
+          >
+            User Guide
+          </button>
+          <button 
+            onClick={() => setActiveTab('faq')}
+            className={`flex-1 py-3 text-[10px] font-mono font-bold uppercase tracking-widest transition-all ${activeTab === 'faq' ? 'text-mimo-accent bg-white/5 shadow-[inset_0_-2px_0_var(--color-mimo-accent)]' : 'text-mimo-text-muted hover:text-mimo-text'}`}
+          >
+            FAQ
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          <AnimatePresence mode="wait">
+            {activeTab === 'about' && (
+              <motion.div 
+                key="about" 
+                initial={{ opacity: 0, x: -10 }} 
+                animate={{ opacity: 1, x: 0 }} 
+                exit={{ opacity: 0, x: 10 }}
+                className="space-y-4"
+              >
+                <h2 className="font-serif italic text-2xl text-mimo-accent leading-tight">Build Anywhere, Intelligently.</h2>
+                <p className="text-sm text-mimo-text-muted leading-relaxed">
+                  bldr is a mobile-optimized development sandbox designed for high-density code iteration. It bridges the gap between fragmented mobile interfaces and complex multi-repo architectures.
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                   <div className="bg-white/5 border border-mimo-border p-3 rounded-lg flex flex-col gap-2">
+                     <Code className="w-4 h-4 text-mimo-accent" />
+                     <span className="text-[10px] font-mono uppercase tracking-widest font-bold">Multi-Repo</span>
+                     <span className="text-[9px] text-mimo-text-muted opacity-60">Manage complex services as one workspace.</span>
+                   </div>
+                   <div className="bg-white/5 border border-mimo-border p-3 rounded-lg flex flex-col gap-2">
+                     <Activity className="w-4 h-4 text-mimo-accent" />
+                     <span className="text-[10px] font-mono uppercase tracking-widest font-bold">Heuristic AI</span>
+                     <span className="text-[9px] text-mimo-text-muted opacity-60">Deterministic tool usage for reliable changes.</span>
+                   </div>
+                </div>
+              </motion.div>
+            )}
+
+            {activeTab === 'guide' && (
+              <motion.div 
+                key="guide" 
+                initial={{ opacity: 0, x: -10 }} 
+                animate={{ opacity: 1, x: 0 }} 
+                exit={{ opacity: 0, x: 10 }}
+                className="space-y-4"
+              >
+                <div className="space-y-6">
+                  <GuideItem step="1" title="Create Workspace" description="Start by giving your project a unique ID. This creates a persistent SQLite sandbox." />
+                  <GuideItem step="2" title="Attach Repositories" description="Use the 'Attach Repo' button in the Files tab to pull in code from GitHub. You can attach multiple services." />
+                  <GuideItem step="3" title="Chat to Code" description="The AI contextually understands your whole tree. Ask it to 'add a login route in the auth-api' and it will cross-reference dependencies." />
+                  <GuideItem step="4" title="Live Preview" description="Check the Preview tab to see your changes reflected instantly in the isolated sandbox." />
+                </div>
+              </motion.div>
+            )}
+
+            {activeTab === 'faq' && (
+              <motion.div 
+                key="faq" 
+                initial={{ opacity: 0, x: -10 }} 
+                animate={{ opacity: 1, x: 0 }} 
+                exit={{ opacity: 0, x: 10 }}
+                className="space-y-2"
+              >
+                <FAQItem question="How many repos can I connect?" answer="You can connect as many as your disk quota allows. bldr organizes them in nested directories for clean AI vision." />
+                <FAQItem question="Is the AI deterministic?" answer="Yes. We use strict tool definitions (CCC patterns) to ensure the AI follows your architectural rules and product requirements." />
+                <FAQItem question="Can I edit files manually?" answer="Not currently in the mobile view, but you can use the AI assistant to perform precise line-by-line replacements." />
+                <FAQItem question="What is Dry Run mode?" answer="When enabled, the assistant must show you a diff of any proposed file changes before they are committed to disk." />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        <div className="p-4 bg-black/40 border-t border-mimo-border flex items-center justify-between">
+          <span className="text-[9px] font-mono text-mimo-text-muted opacity-40">v1.2.0-beta ● PROD</span>
+          <a href="https://github.com/bldr-workspace" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-[9px] font-mono font-bold uppercase text-mimo-accent hover:underline">
+            <Github className="w-3 h-3" />
+            Source
+          </a>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function GuideItem({ step, title, description }: { step: string, title: string, description: string }) {
+  return (
+    <div className="flex gap-4">
+      <div className="w-6 h-6 rounded-full bg-mimo-accent text-mimo-bg flex items-center justify-center text-[10px] font-bold shrink-0 shadow-[0_0_15px_rgba(242,125,38,0.3)]">
+        {step}
+      </div>
+      <div className="space-y-1">
+        <h4 className="text-xs font-bold font-mono uppercase tracking-widest text-mimo-text">{title}</h4>
+        <p className="text-[11px] text-mimo-text-muted leading-relaxed">{description}</p>
+      </div>
+    </div>
+  );
+}
+
+function FAQItem({ question, answer }: { question: string, answer: string }) {
+  const [isOpen, setIsOpen] = useState(false);
+  return (
+    <div className="border border-mimo-border/50 rounded-lg overflow-hidden transition-colors hover:border-mimo-accent/30">
+      <button 
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full p-4 flex items-center justify-between text-left hover:bg-white/2"
+      >
+        <span className="text-xs font-bold text-mimo-text leading-tight">{question}</span>
+        <ChevronDown className={`w-4 h-4 text-mimo-accent transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div 
+            initial={{ height: 0 }}
+            animate={{ height: 'auto' }}
+            exit={{ height: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="p-4 pt-0 text-[11px] text-mimo-text-muted leading-relaxed border-t border-white/5 mt-1">
+              {answer}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

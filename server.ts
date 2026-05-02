@@ -7,6 +7,7 @@ import { existsSync } from 'fs';
 import Database from 'better-sqlite3';
 import axios from 'axios';
 import AdmZip from 'adm-zip';
+import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
 import * as dotenv from 'dotenv';
 
@@ -84,6 +85,8 @@ applyMigrations();
 
 const app = express();
 app.use(express.json());
+
+const upload = multer({ dest: 'uploads/' });
 
 // --- Helper Functions ---
 
@@ -285,6 +288,64 @@ app.post('/api/import/github', async (req, res) => {
     res.json({ id, repoId });
   } catch (error: any) {
     console.error('Import failed:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/import/zip', upload.single('file'), async (req, res) => {
+  const { name } = req.body;
+  const id = uuidv4();
+  const repoId = uuidv4();
+  
+  if (!req.file) {
+    return res.status(400).json({ error: 'No file uploaded' });
+  }
+
+  try {
+    const zip = new AdmZip(req.file.path);
+    const projectDir = path.join(WORKSPACE_ROOT, id);
+    
+    db.prepare('INSERT INTO projects (id, name) VALUES (?, ?)').run(id, name || 'Uploaded Workspace');
+    await fs.mkdir(projectDir, { recursive: true });
+
+    const pathPrefix = ''; // Root for ZIP uploads usually
+    const repoSlug = name || 'main-repo';
+    
+    db.prepare('INSERT INTO repositories (id, project_id, name, path_prefix, type) VALUES (?, ?, ?, ?, ?)')
+      .run(repoId, id, repoSlug, pathPrefix, 'uploaded');
+
+    const zipEntries = zip.getEntries();
+    const ignoreList = ['node_modules/', 'dist/', 'build/', '.git/', 'coverage/', '.next/', '__MACOSX'];
+    
+    for (const entry of zipEntries) {
+      if (entry.isDirectory) continue;
+      if (ignoreList.some(ignore => entry.entryName.includes(ignore))) continue;
+      
+      const entryName = entry.entryName;
+      // Some zips have a root folder, some don't. 
+      // Simplified: just write the file as is if it doesn't look like a root folder we should skip
+      const filePath = path.join(projectDir, entryName);
+      const dirPath = path.dirname(filePath);
+      
+      if (!existsSync(dirPath)) {
+        await fs.mkdir(dirPath, { recursive: true });
+      }
+
+      const content = entry.getData();
+      await fs.writeFile(filePath, content);
+
+      db.prepare('INSERT OR REPLACE INTO files (project_id, repository_id, path, size) VALUES (?, ?, ?, ?)')
+        .run(id, repoId, entryName, content.length);
+    }
+
+    await generateProjectContext(id);
+    
+    // Cleanup upload
+    await fs.unlink(req.file.path);
+
+    res.json({ id, repoId });
+  } catch (error: any) {
+    console.error('ZIP Import failed:', error);
     res.status(500).json({ error: error.message });
   }
 });
