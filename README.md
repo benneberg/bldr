@@ -1,20 +1,34 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# bldr — Build Anywhere, Intelligently
 
-# Run and deploy your AI Studio app
+**bldr** is a mobile-first, AI-powered development environment designed for high-density code iteration on the go. It implements deterministic AI tool control and automated context compilation to make solo development efficient and reliable.
 
-This contains everything you need to run your app locally.
+## 🚀 Core Features
 
-View your app in AI Studio: https://ai.studio/apps/540e90bd-4ea4-48a2-b070-14ab38897a0c
+- **Multi-Repository Workspaces**: Import multiple GitHub repositories into a single unified workspace.
+- **CCC (Code Context Compiler)**: Automatically generates `WORKSPACE.md` and `LLM.md` artifacts to provide the AI with structural and architectural awareness without wasting tokens.
+- **PKML Native**: Built-in support for Product Knowledge Markup Language to ensure AI changes align with product intent.
+- **Deterministic Tooling**: The AI interacts with your code through a strictly defined set of tools (read/write/list/align), providing logs and status updates for every action.
+- **Sophisticated Dark UI**: A refined, low-eye-strain interface optimized for mobile OLED screens and deep concentration.
+- **Live Preview**: Isolated iframe sandbox for instant verification of web applications.
 
-## Run Locally
+## 🛠 Tech Stack
 
-**Prerequisites:**  Node.js
+- **Frontend**: React + Vite + Tailwind CSS + Framer Motion
+- **Backend**: Node.js + Express + SQLite (better-sqlite3)
+- **AI**: Gemini 2.0/3.0 Flash with advanced Function Calling (Tool Use)
+- **Context**: Code Context Compiler (CCC) methodology
 
+## 📂 Workspace Structure
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+bldr workspaces use a flat hierarchy optimized for AI ingestion:
+- `/WORKSPACE.md`: Global inventory of all connected repositories and services.
+- `/LLM.md`: Registry of tech stack conventions and architectural rules.
+- `/PKML.md`: Source of truth for product goals and requirements.
+- `/services/{repo-name}`: The actual codebase for each attached repository.
+
+## 📥 Getting Started
+
+1. **Create a Workspace**: Start by naming your project.
+2. **Attach Repositories**: Import one or more repositories via GitHub URL.
+3. **Chat and Code**: Ask the AI to build features. It will use the generated context to understand the relationships between your services.
+4. **Preview**: Verify your changes in the Live Preview tab.
