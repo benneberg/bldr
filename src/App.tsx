@@ -276,6 +276,8 @@ function ChatPanel({ projectId }: { projectId: string }) {
   const [activities, setActivities] = useState<{name: string, args: any}[]>([]);
   const [repos, setRepos] = useState<any[]>([]);
   const [focusRepoId, setFocusRepoId] = useState<string>('all');
+  const [dryRunEnabled, setDryRunEnabled] = useState(false);
+  const [pendingWrite, setPendingWrite] = useState<{ call: any, resolve: (approved: boolean) => void } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -395,25 +397,55 @@ function ChatPanel({ projectId }: { projectId: string }) {
               },
               required: ['content']
             }
+          },
+          {
+            name: 'analyze_file',
+            description: 'Read and perform a heuristic analysis of a file to determine purpose and quality',
+            parameters: {
+              type: Type.OBJECT,
+              properties: { 
+                path: { type: Type.STRING, description: 'Path to the file to analyze' } 
+              },
+              required: ['path']
+            }
           }
         ]
       }];
 
-      let response = await ai.models.generateContent({
+      let result = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents,
-        config: { tools }
+        config: { tools: tools as any }
       });
 
       let iteration = 0;
       const MAX_ITERATIONS = 10;
-      let lastResponse = response;
+      let lastResponse = result;
       let currentActivities: any[] = [];
 
-      while (lastResponse.functionCalls && iteration < MAX_ITERATIONS) {
+      while (lastResponse.candidates?.[0]?.content?.parts?.some(p => p.functionCall) && iteration < MAX_ITERATIONS) {
+        const functionCalls = lastResponse.candidates[0].content.parts.filter(p => p.functionCall);
         const toolResponses: any[] = [];
         
-        for (const call of lastResponse.functionCalls) {
+        for (const part of functionCalls) {
+          const call = part.functionCall!;
+          
+          // Dry Run Interception
+          if (dryRunEnabled && (call.name === 'write_file' || call.name === 'replace_in_file')) {
+            const approved = await new Promise<boolean>((resolve) => {
+              setPendingWrite({ call, resolve });
+            });
+            setPendingWrite(null);
+            if (!approved) {
+              toolResponses.push({
+                role: 'function',
+                name: call.name,
+                content: JSON.stringify({ error: 'User rejected the code modification.' })
+              });
+              continue;
+            }
+          }
+
           const act = { name: call.name, args: call.args };
           currentActivities.push(act);
           setActivities([...currentActivities]);
@@ -440,8 +472,7 @@ function ChatPanel({ projectId }: { projectId: string }) {
 
         lastResponse = await ai.models.generateContent({
           model: 'gemini-3-flash-preview',
-          contents: [...contents, lastResponse.candidates?.[0]?.content as any, { parts: toolResponses }],
-          config: { tools }
+          contents: [...contents, lastResponse.candidates?.[0]?.content as any, { role: 'function', parts: toolResponses }]
         });
         iteration++;
       }
@@ -542,7 +573,15 @@ function ChatPanel({ projectId }: { projectId: string }) {
         )}
       </div>
       <div className="p-4 px-6 border-t border-mimo-border bg-mimo-bg">
-        <div className="flex gap-2 mb-3 overflow-x-auto pb-2 no-scrollbar">
+        <div className="flex gap-2 mb-3 items-center overflow-x-auto pb-2 no-scrollbar">
+          <button 
+            onClick={() => setDryRunEnabled(!dryRunEnabled)}
+            className={`px-3 py-1 rounded-full text-[9px] font-mono border transition-all shrink-0 flex items-center gap-2 ${dryRunEnabled ? 'bg-red-500/20 text-red-500 border-red-500/50' : 'border-mimo-border text-mimo-text-muted hover:border-mimo-accent/50'}`}
+          >
+            <div className={`w-2 h-2 rounded-full ${dryRunEnabled ? 'bg-red-500 animate-pulse' : 'bg-gray-600'}`} />
+            DRY RUN: {dryRunEnabled ? 'ON' : 'OFF'}
+          </button>
+          <div className="w-px h-4 bg-mimo-border mx-2 shrink-0" />
           <button 
             onClick={() => setFocusRepoId('all')}
             className={`px-3 py-1 rounded-full text-[9px] font-mono border transition-all shrink-0 ${focusRepoId === 'all' ? 'bg-mimo-accent text-mimo-bg border-mimo-accent' : 'border-mimo-border text-mimo-text-muted hover:border-mimo-accent/50'}`}
@@ -577,7 +616,64 @@ function ChatPanel({ projectId }: { projectId: string }) {
           </button>
         </div>
       </div>
+
+      <AnimatePresence>
+        {pendingWrite && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              className="bg-mimo-panel border border-mimo-border w-full max-w-lg rounded-xl overflow-hidden flex flex-col max-h-[80vh] shadow-2xl"
+            >
+              <div className="p-4 bg-black/40 border-b border-mimo-border flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                  <span className="text-xs font-mono font-bold uppercase tracking-widest text-mimo-text">Awaiting Approval — Dry Run</span>
+                </div>
+                <span className="text-[10px] font-mono text-mimo-text-muted">{pendingWrite.call.name}</span>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                <div className="space-y-1">
+                  <label className="text-[9px] font-mono text-mimo-text-muted uppercase">Target File</label>
+                  <div className="bg-black/20 p-2 rounded text-xs font-mono text-mimo-accent border border-mimo-border/50">
+                    {pendingWrite.call.args.path}
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[9px] font-mono text-mimo-text-muted uppercase">Proposed Changes</label>
+                  <pre className="bg-black/40 p-4 rounded text-[10px] font-mono overflow-x-auto border border-white/5 whitespace-pre-wrap leading-relaxed text-mimo-text">
+                    {pendingWrite.call.args.content || pendingWrite.call.args.replacement || JSON.stringify(pendingWrite.call.args, null, 2)}
+                  </pre>
+                </div>
+              </div>
+
+              <div className="p-4 bg-black/20 border-t border-mimo-border grid grid-cols-2 gap-4">
+                <button 
+                  onClick={() => pendingWrite.resolve(false)}
+                  className="py-3 px-4 rounded border border-red-500/50 text-red-500 text-xs font-mono uppercase tracking-widest hover:bg-red-500/10 transition-colors"
+                >
+                  Reject
+                </button>
+                <button 
+                  onClick={() => pendingWrite.resolve(true)}
+                  className="py-3 px-4 rounded bg-mimo-accent text-mimo-bg text-xs font-mono font-bold uppercase tracking-widest hover:opacity-90 active:scale-95 transition-all"
+                >
+                  Approve & Write
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
+
   );
 }
 

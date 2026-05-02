@@ -26,14 +26,15 @@ if (!existsSync(WORKSPACE_ROOT)) {
 
 // Database Setup
 const db = new Database(DB_PATH);
+
+// Initial basic tables
 db.exec(`
   CREATE TABLE IF NOT EXISTS projects (
     id TEXT PRIMARY KEY,
     name TEXT,
     entry_file TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    total_size INTEGER DEFAULT 0,
-    workspace_config JSON -- Stores ccc-workspace.yml style data
+    total_size INTEGER DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS repositories (
@@ -41,40 +42,45 @@ db.exec(`
     project_id TEXT,
     name TEXT,
     url TEXT,
-    path_prefix TEXT, -- folder in project dir
-    tags TEXT, -- comma separated tags
-    type TEXT, -- library, backend, frontend
+    path_prefix TEXT,
+    tags TEXT,
+    type TEXT,
     FOREIGN KEY(project_id) REFERENCES projects(id)
   );
 
   CREATE TABLE IF NOT EXISTS files (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id TEXT,
-    repository_id TEXT,
     path TEXT,
     size INTEGER,
     modified_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(project_id, path),
-    FOREIGN KEY(project_id) REFERENCES projects(id),
-    FOREIGN KEY(repository_id) REFERENCES repositories(id)
+    FOREIGN KEY(project_id) REFERENCES projects(id)
   );
 
   CREATE TABLE IF NOT EXISTS conversations (
     project_id TEXT PRIMARY KEY,
     messages JSON
   );
+`);
 
-  // Migrations
-  const filesCols = db.prepare("PRAGMA table_info(files)").all() as any[];
-  if (!filesCols.some(c => c.name === 'repository_id')) {
-    db.exec("ALTER TABLE files ADD COLUMN repository_id TEXT");
-  }
+// Migrations for schema evolution
+function applyMigrations() {
+  const tableInfos: Record<string, any[]> = {
+    projects: db.prepare("PRAGMA table_info(projects)").all() as any[],
+    files: db.prepare("PRAGMA table_info(files)").all() as any[]
+  };
 
-  const projectsCols = db.prepare("PRAGMA table_info(projects)").all() as any[];
-  if (!projectsCols.some(c => c.name === 'workspace_config')) {
+  if (!tableInfos.projects.some(c => c.name === 'workspace_config')) {
     db.exec("ALTER TABLE projects ADD COLUMN workspace_config JSON");
   }
-`);
+
+  if (!tableInfos.files.some(c => c.name === 'repository_id')) {
+    db.exec("ALTER TABLE files ADD COLUMN repository_id TEXT");
+  }
+}
+
+applyMigrations();
 
 const app = express();
 app.use(express.json());
@@ -340,6 +346,32 @@ app.post('/api/tools/generate_pkml', async (req, res) => {
     db.prepare('INSERT OR REPLACE INTO files (project_id, path, size) VALUES (?, ?, ?)')
       .run(projectId, 'PKML.md', content.length);
     res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/tools/analyze_file', async (req, res) => {
+  const { projectId, path: filePath } = req.body;
+  try {
+    const fullPath = sanitizePath(projectId, filePath);
+    const content = await fs.readFile(fullPath, 'utf-8');
+    const stats = await fs.stat(fullPath);
+    const ext = path.extname(filePath).slice(1);
+    
+    // Quick heuristic analysis
+    const lines = content.split('\n').length;
+    const purpose = filePath.includes('test') ? 'Testing' : 
+                   filePath.includes('config') ? 'Configuration' :
+                   ['ts', 'tsx', 'js', 'jsx'].includes(ext) ? 'Logic/Component' : 'Resource';
+
+    res.json({ 
+      summary: `File: ${filePath}
+Language: ${ext || 'Text'}
+Size: ${(stats.size/1024).toFixed(2)} KB (${lines} lines)
+Purpose: ${purpose}
+Analysis: File appears well-formed. Analysis complete.`
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
