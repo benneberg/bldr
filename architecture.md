@@ -49,3 +49,7 @@ To keep token usage low while maintaining high AI comprehension, bldr generates 
 ## 7. Architecture Visualization
 - **Dependency Mapper**: Scans JS/TS imports periodically to construct a D3 directed force-graph of the workspace.
 - **Health Watchdog**: Background process that executes workspace lints and build checks, surfacing "Healthy/Warning" states in the UI header.
+
+## 8. Development Lifecycle
+- **PR Simulation**: Session changes are passed to a summarization prompt that outputs a standard Pull Request format (Executive Summary, Detailed Changes, Risk Assessment).
+- **Heuristic Semantic Search**: A hybrid approach using greedy keyword expansion and regex patterns to simulate semantic code discovery without a full vector database dependency.

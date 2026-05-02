@@ -33,4 +33,9 @@
 - [x] Semantic Search: Use embeddings to find relevant code snippets (Mocked as Regex/Heuristic).
 - [x] Dependency Mapping: Analyze imports to build a visual graph of service relationships.
 - [x] Automated Health Checks: Periodic lints/build commands reporting to UI.
-- [ ] **Next**: PR Simulation: AI generates a summary of its changes in a format ready for GitHub.
+- [x] PR Simulation: AI generates a summary of its changes in a format ready for GitHub.
+
+## 🏗 Phase 6: Production Hardening (Upcoming)
+- [ ] Role-Based Access Control (RBAC) for workspace permissions.
+- [ ] Enterprise Auth (SAML/SSO integration).
+- [ ] Binary File Support (Image/Asset management).
