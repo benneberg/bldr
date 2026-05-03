@@ -1,17 +1,17 @@
 # bldr — Build Anywhere, Intelligently
 
-**bldr** is a mobile-first, AI-powered development environment designed for high-density code iteration on the go. It implements deterministic AI tool control and automated context compilation to make solo development efficient and reliable.
+**bldr** is an **execution layer for developer intent**, designed for high-density engineering and mobile-first productivity. It transitions development from "typing in an IDE" to "instructing an AI system" that manages full dev infra.
 
 ## 🚀 Core Features
 
-- **Multi-Repository Workspaces**: Import multiple GitHub repositories or local ZIP files into a single unified workspace.
-- **CodeMirror Editor**: Full featured in-browser editor for manual code adjustments with syntax highlighting.
-- **Dry Run Protection**: AI-proposed changes are intercepted and presented as a diff for user approval before being committed to disk.
-- **AI File Analysis**: Specialized tool for heuristic code analysis, summarizing purpose and quality.
-- **CCC (Code Context Compiler)**: Automatically generates `WORKSPACE.md` and `LLM.md` artifacts to provide the AI with structural and architectural awareness.
-- **Sandbox Execution**: Integrated Terminal v1.0 in the Preview tab for running shell commands and inspecting runtime logs.
-- **Real-time Collaboration**: Multi-user presence tracking and remote editor synchronization powered by Socket.io.
-- **Information Hub**: Integrated project info panel with user guides, FAQs, and architectural insights.
+- **Sync Engine (Phase 6)**: Real-time filesystem synchronization with `chokidar` ensures zero drift between the AI's internal model and the codebase.
+- **Multi-Repository Workspaces**: Unified management of complex service architectures in a single "pocket" interface.
+- **CCC Protocol (Memory Layer)**: Automated, tiered generation of `WORKSPACE.md`, `LLM.md`, and `CONTEXT.md` artifacts for perfect AI comprehension.
+- **Instruction-First UI**: A mobile-optimized interface where Chat is the IDE and the editor is a secondary tool for inspection.
+- **Git-Backed Sessions**: AI changes use transient branches for deterministic undo/redo logic.
+- **Dry Run Protection**: AI-proposed changes are presented as block-based PR summaries for touch-friendly user approval.
+- **Sandbox Terminal**: Integrated shell execution for running builds, lints, and services in real-time.
+- **Real-time Collaboration**: Multi-user presence and editor sync for remote pairing sessions.
 
 ## 🛠 Tech Stack
 
