@@ -72,6 +72,21 @@ db.exec(`
     project_id TEXT PRIMARY KEY,
     messages JSON
   );
+
+  CREATE TABLE IF NOT EXISTS debug_events (
+    id TEXT PRIMARY KEY,
+    parent_id TEXT,
+    timestamp INTEGER,
+    session_id TEXT,
+    project_id TEXT,
+    type TEXT,
+    branch TEXT,
+    commit_hash TEXT,
+    ccc_tier INTEGER,
+    replayable INTEGER,
+    payload TEXT,
+    FOREIGN KEY(project_id) REFERENCES projects(id)
+  );
 `);
 
 // Migrations for schema evolution
@@ -102,6 +117,39 @@ app.use(express.json());
 const upload = multer({ dest: 'uploads/' });
 
 // --- Helper Functions ---
+
+function emitDebugEvent(io: Server, event: any) {
+  const debugEvent = {
+    id: uuidv4(),
+    timestamp: Date.now(),
+    ...event
+  };
+
+  try {
+    db.prepare(`
+      INSERT INTO debug_events (id, parent_id, timestamp, session_id, project_id, type, branch, commit_hash, ccc_tier, replayable, payload)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      debugEvent.id,
+      debugEvent.parentId || null,
+      debugEvent.timestamp,
+      debugEvent.sessionId,
+      debugEvent.projectId,
+      debugEvent.type,
+      debugEvent.gitRef.branch,
+      debugEvent.gitRef.commit,
+      debugEvent.cccTier || null,
+      debugEvent.replayable ? 1 : 0,
+      JSON.stringify(debugEvent.payload)
+    );
+
+    io.to(debugEvent.projectId).emit('debug:event', debugEvent);
+  } catch (e) {
+    console.error('Failed to persist debug event:', e);
+  }
+  
+  return debugEvent;
+}
 
 async function calculateHash(filePath: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -528,6 +576,17 @@ app.post('/api/tools/write_file', async (req, res) => {
     await fs.writeFile(fullPath, content);
     db.prepare('INSERT OR REPLACE INTO files (project_id, path, size) VALUES (?, ?, ?)')
       .run(projectId, filePath, content.length);
+
+    emitDebugEvent(io, {
+      projectId,
+      sessionId: req.body.sessionId || 'ai-session',
+      type: 'ai:action',
+      gitRef: { branch: 'main', commit: 'head' },
+      cccTier: 1,
+      replayable: true,
+      payload: { action: 'write_file', path: filePath }
+    });
+
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -666,6 +725,29 @@ app.post('/api/tools/list_files', async (req, res) => {
   }
 });
 
+app.get('/api/debug/events/:projectId', async (req, res) => {
+  const { projectId } = req.params;
+  const events = db.prepare('SELECT * FROM debug_events WHERE project_id = ? ORDER BY timestamp DESC LIMIT 100').all(projectId) as any[];
+  res.json(events.map(e => ({
+    ...e,
+    payload: JSON.parse(e.payload),
+    replayable: !!e.replayable,
+    gitRef: { branch: e.branch, commit: e.commit_hash }
+  })));
+});
+
+app.post('/api/debug/report_error', async (req, res) => {
+  const { projectId, message, source, line, column, type } = req.body;
+  emitDebugEvent(io, {
+    projectId,
+    sessionId: 'sandbox-runtime',
+    type: type === 'console' ? 'runtime:log' : 'runtime:error',
+    gitRef: { branch: 'main', commit: 'head' },
+    payload: { message, source, line, column }
+  });
+  res.json({ success: true });
+});
+
 // --- Preview Service ---
 app.get('/preview/:projectId/*', async (req, res) => {
   const { projectId } = req.params;
@@ -677,6 +759,14 @@ app.get('/preview/:projectId/*', async (req, res) => {
         const content = await fs.readFile(fullPath, 'utf-8');
         const script = `
           <script>
+            function reportToCHD(data) {
+              fetch('/api/debug/report_error', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ projectId: '${projectId}', ...data })
+              });
+            }
+
             window.onerror = function(message, source, lineno, colno, error) {
               window.parent.postMessage({
                 type: 'SANDBOX_ERROR',
@@ -685,14 +775,17 @@ app.get('/preview/:projectId/*', async (req, res) => {
                 column: colno,
                 source: source
               }, '*');
+              reportToCHD({ type: 'error', message, source, line: lineno, column: colno });
             };
             console.error = (function(oldError) {
               return function() {
                 oldError.apply(console, arguments);
+                const args = Array.from(arguments).map(String);
                 window.parent.postMessage({
                   type: 'SANDBOX_CONSOLE_ERROR',
-                  args: Array.from(arguments).map(String)
+                  args: args
                 }, '*');
+                reportToCHD({ type: 'console', message: args.join(' ') });
               };
             })(console.error);
           </script>
@@ -710,10 +803,11 @@ app.get('/preview/:projectId/*', async (req, res) => {
 });
 
 // --- Server Setup ---
+let io: Server;
 
 async function startServer() {
   const httpServer = createServer(app);
-  const io = new Server(httpServer);
+  io = new Server(httpServer);
 
   // Watcher Initialization
   const watcher = chokidar.watch(WORKSPACE_ROOT, {
@@ -735,6 +829,14 @@ async function startServer() {
     if (projectId && relPath && !relPath.endsWith('CONTEXT.md') && !relPath.endsWith('WORKSPACE.md')) {
       syncQueue.add(`${projectId}|${relPath}`);
       processSyncQueue(io);
+
+      emitDebugEvent(io, {
+        projectId,
+        sessionId: 'fs-sync', 
+        type: 'fs:change',
+        gitRef: { branch: 'main', commit: 'head' },
+        payload: { event, path: relPath }
+      });
     }
   });
 

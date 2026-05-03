@@ -11,6 +11,7 @@ import {
   Activity,
   Terminal as TerminalIcon,
   Layers,
+  History
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { io, Socket } from 'socket.io-client';
@@ -19,13 +20,14 @@ import { ChatPanel } from './components/chat/ChatPanel';
 import { ImportPanel, TabButton } from './components/panels/Common';
 import { FilesPanel } from './components/panels/FilesPanel';
 import { InfoPanel } from './components/panels/InfoPanel';
+import { DebuggerPanel } from './components/panels/DebuggerPanel';
 import { Project, Message } from './types';
 
 // Global socket instance
 let socket: Socket;
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'chat' | 'files' | 'preview' | 'arch'>('chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'files' | 'preview' | 'arch' | 'debug'>('chat');
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -364,6 +366,17 @@ export default function App() {
               <ArchitecturePanel projectId={selectedProjectId!} />
             </motion.div>
           )}
+          {activeTab === 'debug' && (
+            <motion.div 
+              key="debug"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0"
+            >
+              <DebuggerPanel projectId={selectedProjectId!} socket={socket} />
+            </motion.div>
+          )}
         </AnimatePresence>
       </main>
 
@@ -391,6 +404,12 @@ export default function App() {
           onClick={() => setActiveTab('arch')} 
           icon={<Layers />} 
           label="Arch" 
+        />
+        <TabButton 
+          active={activeTab === 'debug'} 
+          onClick={() => setActiveTab('debug')} 
+          icon={<History />} 
+          label="CHD" 
         />
       </nav>
     </div>
