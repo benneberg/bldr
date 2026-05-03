@@ -46,6 +46,10 @@ Monitored registry of all tracked assets.
 * `project_id`, `path`, `size`, `hash`, `modified_at`.
 * Includes SHA-256 hashing for integrity checks.
 
+### `debug_events` (CHD Journal)
+* `id`, `parent_id`, `timestamp`, `session_id`, `project_id`, `type`, `branch`, `commit_hash`, `ccc_tier`, `replayable`, `payload`.
+* Provides the source of truth for the Causal History Debugger.
+
 ## 🧠 CCC Protocol (AI Memory System)
 
 To ensure token efficiency, bldr uses a tiered context update system:

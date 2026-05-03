@@ -4,6 +4,7 @@
 
 ## 🚀 Core Features
 
+- **Causal History Debugger (CHD)**: Real-Time event bus that correlates AI actions, Git commits, and runtime errors to provide instant root-cause analysis.
 - **Sync Engine (Phase 6)**: Real-time filesystem synchronization with `chokidar` ensures zero drift between the AI's internal model and the codebase.
 - **Multi-Repository Workspaces**: Unified management of complex service architectures in a single "pocket" interface.
 - **CCC Protocol (Memory Layer)**: Automated, tiered generation of `WORKSPACE.md`, `LLM.md`, and `CONTEXT.md` artifacts for perfect AI comprehension.

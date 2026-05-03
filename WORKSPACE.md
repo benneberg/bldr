@@ -20,5 +20,7 @@ This workspace is designed to manage multiple git-backed repositories simultaneo
 
 ## 📡 Live Endpoints
 * `GET /api/projects` — List active workspaces
+* `GET /api/debug/events/:projectId` — Fetch CHD timeline history
+* `POST /api/debug/report_error` — Report sandbox runtime events
 * `POST /api/import/github` — Import a new service
 * `WS /socket.io` — Real-time event bus

@@ -10,13 +10,15 @@
 - [x] Diff preview & PR Simulation
 - [x] Real-time collaboration
 
-## 🏗 Phase 6 — Sync Engine (Active)
+## ✅ Phase 6 — Sync Engine & CHD (Done)
 - [x] FS watcher (`chokidar`) integration
 - [x] Incremental CCC (Tier 1/2/3 logic)
+- [x] Causal History Debugger (CHD) Foundation
+- [x] Sandbox Error/Log Reporting
 - [ ] Git-backed sessions (replacing snapshots)
 - [ ] Semantic search (`sqlite-vss` + embeddings)
 
-## 📱 Phase 7 — Mobile UX
+## 🏗 Phase 7 — Mobile UX (Active)
 - [ ] Voice input integration
 - [ ] Block-based approvals UI refinement
 - [ ] Intent-based branching (sandbox mode)
