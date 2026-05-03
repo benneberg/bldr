@@ -39,6 +39,7 @@ export default function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [healthStatus, setHealthStatus] = useState<{ status: 'healthy' | 'warning' | 'error', issues: string[] }>({ status: 'healthy', issues: [] });
   const [command, setCommand] = useState('');
+  const [lastSync, setLastSync] = useState<number | null>(null);
   const terminalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -91,8 +92,13 @@ export default function App() {
       }
       socket.emit('join_project', selectedProjectId);
       socket.on('presence_update', (count) => setPresenceCount(count));
+      socket.on('fs_event', () => {
+        setLastSync(Date.now());
+        setTimeout(() => setLastSync(null), 3000);
+      });
       return () => {
         socket.off('presence_update');
+        socket.off('fs_event');
       };
     }
   }, [selectedProjectId]);
@@ -222,6 +228,19 @@ export default function App() {
             <div className="w-1 h-1 rounded-full bg-green-500 animate-pulse" />
             {presenceCount > 1 ? `${presenceCount} ACTIVE USERS` : 'SYNCED'}
           </div>
+          <AnimatePresence>
+            {lastSync && (
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0 }}
+                className="px-2 py-0.5 bg-mimo-accent/20 text-mimo-accent text-[9px] font-mono rounded border border-mimo-accent/30 flex items-center gap-1.5"
+              >
+                <Activity className="w-2 h-2" />
+                CONTEXT SYNCED
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </header>
 

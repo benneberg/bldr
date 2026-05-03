@@ -81,8 +81,19 @@ export function FilesPanel({
       const data = await res.json();
       setFiles(data);
     };
+    
     fetchFiles();
-  }, [projectId]);
+
+    if (socket) {
+      socket.on('fs_event', (event) => {
+        console.log('FS Sync event:', event);
+        fetchFiles();
+      });
+      return () => {
+        socket.off('fs_event');
+      };
+    }
+  }, [projectId, socket]);
 
   useEffect(() => {
     if (content !== null) {

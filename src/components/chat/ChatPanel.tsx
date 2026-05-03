@@ -11,7 +11,9 @@ import {
   Zap, 
   X,
   Check,
-  AlertCircle
+  AlertCircle,
+  Mic,
+  GitBranch
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -316,30 +318,36 @@ export function ChatPanel({
                          {act.name === 'generate_pr' ? 'DOCUMENTING SESSION CHANGES' : `${act.name}(${JSON.stringify(act.args)})`}
                        </div>
                        {act.name === 'generate_pr' && (
-                         <div className="p-3 bg-mimo-bg border border-mimo-accent/20 rounded space-y-4">
-                           <h4 className="font-serif italic text-lg text-mimo-accent underline decoration-mimo-accent/20">Session Summary</h4>
-                           <p className="text-xs text-mimo-text leading-relaxed">{act.args.summary}</p>
+                         <div className="p-4 bg-mimo-bg border-l-2 border-mimo-accent rounded-r space-y-4 shadow-xl">
+                            <div className="flex items-center gap-2 mb-2">
+                              <GitBranch className="w-4 h-4 text-mimo-accent" />
+                              <h4 className="font-serif italic text-lg text-mimo-accent uppercase tracking-tight">Deployment Specification</h4>
+                            </div>
+                           <p className="text-xs text-mimo-text leading-relaxed font-medium">{act.args.summary}</p>
                            <div className="space-y-2 text-mimo-text">
-                             <div className="text-[9px] font-mono text-mimo-text-muted uppercase">Key Changes</div>
-                             <ul className="text-[10px] font-mono space-y-1">
+                             <div className="text-[9px] font-mono text-mimo-text-muted uppercase tracking-widest bg-white/5 p-1 rounded inline-block">Execution Steps</div>
+                             <ul className="text-[10px] font-mono space-y-1.5">
                                {act.args.changes.map((c: string, ci: number) => (
                                  <li key={ci} className="flex gap-2">
-                                   <span className="text-mimo-accent">→</span>
+                                   <span className="text-mimo-accent text-[8px]">●</span>
                                    {c}
                                  </li>
                                ))}
                              </ul>
                            </div>
                            {act.args.risks && act.args.risks.length > 0 && (
-                             <div className="space-y-2">
-                               <div className="text-[9px] font-mono text-red-500/60 uppercase">Risk Assessment</div>
-                               <ul className="text-[10px] font-mono space-y-1 text-red-500/80">
+                             <div className="space-y-2 p-2 bg-red-500/5 border border-red-500/10 rounded">
+                               <div className="text-[9px] font-mono text-red-500/60 uppercase">Stability Delta</div>
+                               <ul className="text-[10px] font-mono space-y-0.5 text-red-500/80">
                                  {act.args.risks.map((r: string, ri: number) => (
                                    <li key={ri}>• {r}</li>
                                  ))}
                                </ul>
                              </div>
                            )}
+                           <button className="w-full py-2 mt-4 bg-mimo-accent/10 border border-mimo-accent/40 text-mimo-accent text-[9px] font-mono uppercase tracking-[0.2em] font-bold hover:bg-mimo-accent hover:text-mimo-bg transition-all">
+                             Finalize & Export PR
+                           </button>
                          </div>
                        )}
                     </div>
@@ -457,16 +465,24 @@ export function ChatPanel({
                 handleSend();
               }
             }}
-            placeholder="Describe your design goal or architecture change..."
-            className="w-full bg-mimo-bg border border-mimo-border rounded-xl p-4 pr-14 text-sm focus:outline-none focus:border-mimo-accent transition-all resize-none min-h-[100px] text-mimo-text placeholder:text-white/10"
+            placeholder="Describe your design goal..."
+            className="w-full bg-mimo-bg border border-mimo-border rounded-xl p-4 pr-24 text-sm focus:outline-none focus:border-mimo-accent transition-all resize-none min-h-[100px] text-mimo-text placeholder:text-white/10"
           />
-          <button 
-            onClick={() => handleSend()}
-            disabled={!input.trim() || isTyping}
-            className="absolute bottom-4 right-4 w-10 h-10 bg-mimo-accent text-mimo-bg rounded-lg flex items-center justify-center hover:opacity-90 active:scale-95 transition-all disabled:opacity-30"
-          >
-            {isTyping ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
-          </button>
+          <div className="absolute bottom-4 right-4 flex items-center gap-2">
+            <button 
+              onClick={() => alert('Voice input coming in Phase 7 implementation...')}
+              className="w-10 h-10 bg-mimo-panel border border-mimo-border text-mimo-text-muted rounded-lg flex items-center justify-center hover:text-mimo-accent hover:border-mimo-accent transition-all"
+            >
+              <Mic className="w-5 h-5" />
+            </button>
+            <button 
+              onClick={() => handleSend()}
+              disabled={!input.trim() || isTyping}
+              className="w-10 h-10 bg-mimo-accent text-mimo-bg rounded-lg flex items-center justify-center hover:opacity-90 active:scale-95 transition-all disabled:opacity-30"
+            >
+              {isTyping ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+            </button>
+          </div>
         </div>
       </div>
     </div>

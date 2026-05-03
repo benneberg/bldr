@@ -3,7 +3,7 @@ import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs/promises';
-import { existsSync } from 'fs';
+import { existsSync, createReadStream } from 'fs';
 import Database from 'better-sqlite3';
 import axios from 'axios';
 import AdmZip from 'adm-zip';
@@ -14,6 +14,8 @@ import { Server } from 'socket.io';
 import { createServer } from 'http';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import chokidar from 'chokidar';
+import crypto from 'crypto';
 
 const execAsync = promisify(exec);
 
@@ -60,6 +62,7 @@ db.exec(`
     project_id TEXT,
     path TEXT,
     size INTEGER,
+    hash TEXT,
     modified_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(project_id, path),
     FOREIGN KEY(project_id) REFERENCES projects(id)
@@ -85,6 +88,10 @@ function applyMigrations() {
   if (!tableInfos.files.some(c => c.name === 'repository_id')) {
     db.exec("ALTER TABLE files ADD COLUMN repository_id TEXT");
   }
+
+  if (!tableInfos.files.some(c => c.name === 'hash')) {
+    db.exec("ALTER TABLE files ADD COLUMN hash TEXT");
+  }
 }
 
 applyMigrations();
@@ -95,6 +102,63 @@ app.use(express.json());
 const upload = multer({ dest: 'uploads/' });
 
 // --- Helper Functions ---
+
+async function calculateHash(filePath: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    const input = createReadStream(filePath);
+    input.on('readable', () => {
+      const data = input.read();
+      if (data) hash.update(data);
+      else resolve(hash.digest('hex'));
+    });
+    input.on('error', reject);
+  });
+}
+
+const syncQueue: Set<string> = new Set();
+let isSyncing = false;
+
+async function processSyncQueue(io: Server) {
+  if (isSyncing || syncQueue.size === 0) return;
+  isSyncing = true;
+  
+  const tasks = Array.from(syncQueue);
+  syncQueue.clear();
+  
+  for (const task of tasks) {
+    const [projectId, relPath] = task.split('|');
+    try {
+      const projectDir = path.join(WORKSPACE_ROOT, projectId);
+      const fullPath = path.join(projectDir, relPath);
+      
+      if (existsSync(fullPath)) {
+        const stats = await fs.stat(fullPath);
+        if (stats.isFile()) {
+          const hash = await calculateHash(fullPath);
+          db.prepare('INSERT OR REPLACE INTO files (project_id, path, size, hash, modified_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)')
+            .run(projectId, relPath, stats.size, hash);
+          
+          // Tiered Update Logic
+          if (relPath.endsWith('.md') || relPath.endsWith('.json') || relPath.endsWith('.ts') || relPath.endsWith('.tsx')) {
+             await generateProjectContext(projectId);
+          }
+        }
+      } else {
+        // File deleted
+        db.prepare('DELETE FROM files WHERE project_id = ? AND path = ?').run(projectId, relPath);
+        await generateProjectContext(projectId);
+      }
+      
+      io.to(projectId).emit('fs_event', { type: 'sync', path: relPath });
+    } catch (e) {
+      console.error('Fast Sync Error:', e);
+    }
+  }
+  
+  isSyncing = false;
+  if (syncQueue.size > 0) processSyncQueue(io);
+}
 
 async function generateProjectContext(projectId: string) {
   const projectDir = path.join(WORKSPACE_ROOT, projectId);
@@ -650,6 +714,29 @@ app.get('/preview/:projectId/*', async (req, res) => {
 async function startServer() {
   const httpServer = createServer(app);
   const io = new Server(httpServer);
+
+  // Watcher Initialization
+  const watcher = chokidar.watch(WORKSPACE_ROOT, {
+    ignored: /(^|[\/\\])\../, // ignore dotfiles
+    persistent: true,
+    ignoreInitial: true,
+    awaitWriteFinish: {
+      stabilityThreshold: 1000,
+      pollInterval: 100
+    }
+  });
+
+  watcher.on('all', (event, fullPath) => {
+    const relToWorkspace = path.relative(WORKSPACE_ROOT, fullPath);
+    const parts = relToWorkspace.split(path.sep);
+    const projectId = parts[0];
+    const relPath = parts.slice(1).join('/');
+
+    if (projectId && relPath && !relPath.endsWith('CONTEXT.md') && !relPath.endsWith('WORKSPACE.md')) {
+      syncQueue.add(`${projectId}|${relPath}`);
+      processSyncQueue(io);
+    }
+  });
 
   const projectUsers: Record<string, Set<string>> = {};
 
