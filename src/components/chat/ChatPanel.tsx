@@ -13,7 +13,11 @@ import {
   Check,
   AlertCircle,
   Mic,
-  GitBranch
+  GitBranch,
+  Info,
+  Activity,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -22,6 +26,120 @@ import { callAI, ChatMessage, MiMoTool } from '../../lib/mimo';
 import { Provider, ModelTier, PROVIDERS, MODELS, DEFAULT_PROVIDER, DEFAULT_TIER } from '../../lib/providers';
 
 const ai = new GoogleGenAI({ apiKey: (process as any).env.GEMINI_API_KEY || '' });
+
+function ChatMessageItem({ m }: { m: Message }) {
+  const [showMeta, setShowMeta] = useState(false);
+
+  return (
+    <div className="space-y-4">
+      <div className={`flex gap-4 ${m.role === 'user' ? 'flex-row-reverse' : ''}`}>
+        <div className={`w-8 h-8 rounded shrink-0 border transition-colors ${
+          m.role === 'user' 
+            ? 'bg-mimo-panel border-mimo-border' 
+            : 'bg-mimo-bg border-mimo-accent flex items-center justify-center'
+        }`}>
+          {m.role === 'model' && <div className="w-1.5 h-1.5 bg-mimo-accent rounded-full" />}
+        </div>
+        <div className="space-y-1 flex-1">
+          <div className={`flex items-center gap-2 text-[9px] font-mono font-bold uppercase tracking-widest opacity-40 ${m.role === 'user' ? 'justify-end' : ''}`}>
+            {m.role === 'user' ? 'User' : 'bldr'}
+            {m.role === 'model' && m.metadata && (
+              <button 
+                onClick={() => setShowMeta(!showMeta)}
+                className="ml-2 flex items-center gap-1 text-mimo-accent hover:opacity-100 opacity-60 transition-opacity"
+              >
+                <Activity className="w-3 h-3" />
+                {showMeta ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+              </button>
+            )}
+          </div>
+          
+          <AnimatePresence>
+            {showMeta && m.metadata && (
+              <motion.div 
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                className="overflow-hidden mb-2"
+              >
+                <div className="bg-black/20 rounded p-2 text-[10px] font-mono grid grid-cols-2 gap-x-4 gap-y-1 border border-white/5">
+                  <div className="text-mimo-text-muted">Model</div>
+                  <div className="text-mimo-text text-right truncate">{m.metadata.model || 'Unknown'}</div>
+                  <div className="text-mimo-text-muted">Latency</div>
+                  <div className="text-mimo-text text-right">{(m.metadata.latency / 1000).toFixed(2)}s</div>
+                  {m.metadata.tokens && (
+                    <>
+                      <div className="text-mimo-text-muted">Tokens</div>
+                      <div className="text-mimo-text text-right">{m.metadata.tokens.total.toLocaleString()}</div>
+                      <div className="text-mimo-text-muted opacity-50 pl-2">↳ Prompt</div>
+                      <div className="text-mimo-text text-right opacity-50">{m.metadata.tokens.prompt.toLocaleString()}</div>
+                      <div className="text-mimo-text-muted opacity-50 pl-2">↳ Completion</div>
+                      <div className="text-mimo-text text-right opacity-50">{m.metadata.tokens.completion.toLocaleString()}</div>
+                    </>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <div className={`text-sm leading-relaxed ${m.role === 'user' ? 'text-mimo-text-muted text-right' : 'text-mimo-text'}`}>
+            {m.parts[0].text}
+          </div>
+        </div>
+      </div>
+      {m.activities && m.activities.length > 0 && (
+        <div className="flex justify-start ml-12">
+          <div className="flex flex-col gap-2 w-full max-w-xs">
+            {m.activities.map((act, ai) => (
+              <div key={ai} className="bg-mimo-panel border border-mimo-border p-3 rounded space-y-2">
+                 <div className="flex items-center justify-between text-[9px] font-mono">
+                   <span className="text-mimo-text-muted">EXECUTING TOOL</span>
+                   <span className="text-green-500 uppercase">Success</span>
+                 </div>
+                 <div className="text-[10px] font-mono text-mimo-accent bg-black/40 p-2 rounded truncate">
+                   {act.name === 'generate_pr' ? 'DOCUMENTING SESSION CHANGES' : `${act.name}(${JSON.stringify(act.args)})`}
+                 </div>
+                 {act.name === 'generate_pr' && (
+                   <div className="p-4 bg-mimo-bg border-l-2 border-mimo-accent rounded-r space-y-4 shadow-xl">
+                      <div className="flex items-center gap-2 mb-2">
+                        <GitBranch className="w-4 h-4 text-mimo-accent" />
+                        <h4 className="font-serif italic text-lg text-mimo-accent uppercase tracking-tight">Deployment Specification</h4>
+                      </div>
+                     <p className="text-xs text-mimo-text leading-relaxed font-medium">{act.args.summary}</p>
+                     <div className="space-y-2 text-mimo-text">
+                       <div className="text-[9px] font-mono text-mimo-text-muted uppercase tracking-widest bg-white/5 p-1 rounded inline-block">Execution Steps</div>
+                       <ul className="text-[10px] font-mono space-y-1.5">
+                         {act.args.changes.map((c: string, ci: number) => (
+                           <li key={ci} className="flex gap-2">
+                             <span className="text-mimo-accent text-[8px]">●</span>
+                             {c}
+                           </li>
+                         ))}
+                       </ul>
+                     </div>
+                     {act.args.risks && act.args.risks.length > 0 && (
+                       <div className="space-y-2 p-2 bg-red-500/5 border border-red-500/10 rounded">
+                         <div className="text-[9px] font-mono text-red-500/60 uppercase">Stability Delta</div>
+                         <ul className="text-[10px] font-mono space-y-0.5 text-red-500/80">
+                           {act.args.risks.map((r: string, ri: number) => (
+                             <li key={ri}>• {r}</li>
+                           ))}
+                         </ul>
+                       </div>
+                     )}
+                     <button className="w-full py-2 mt-4 bg-mimo-accent/10 border border-mimo-accent/40 text-mimo-accent text-[9px] font-mono uppercase tracking-[0.2em] font-bold hover:bg-mimo-accent hover:text-mimo-bg transition-all">
+                       Finalize & Export PR
+                     </button>
+                   </div>
+                 )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function ChatPanel({ 
   projectId, 
@@ -88,6 +206,7 @@ export function ChatPanel({
     setIsTyping(true);
     setActivities([]);
 
+    const startTime = Date.now();
     try {
       const contents: any[] = messages.map(m => ({ 
         role: m.role, 
@@ -275,6 +394,7 @@ Core Directive: EXECUTE, DO NOT JUST DESCRIBE.
 
       const currentActivities: any[] = [];
       let finalResponseText = '';
+      let metadata: any = { provider: aiProvider, latency: 0 };
 
       if (aiProvider === 'mimo' || aiProvider === 'openai') {
         // MiMo / OpenAI flow
@@ -295,6 +415,9 @@ Core Directive: EXECUTE, DO NOT JUST DESCRIBE.
         }
 
         let iteration = 0;
+        let totalPromptTokens = 0;
+        let totalCompletionTokens = 0;
+
         while (iteration < 10) {
           const response = await callAI({
             provider: aiProvider,
@@ -302,6 +425,17 @@ Core Directive: EXECUTE, DO NOT JUST DESCRIBE.
             messages: mimoMessages,
             tools: mimoTools
           });
+
+          if (response.usage) {
+            totalPromptTokens += response.usage.prompt_tokens;
+            totalCompletionTokens += response.usage.completion_tokens;
+            metadata.tokens = {
+              prompt: totalPromptTokens,
+              completion: totalCompletionTokens,
+              total: totalPromptTokens + totalCompletionTokens
+            };
+          }
+          if (response.model) metadata.model = response.model;
 
           const choice = response.choices[0];
           const toolCalls = choice.message.tool_calls;
@@ -369,6 +503,15 @@ Core Directive: EXECUTE, DO NOT JUST DESCRIBE.
           contents,
           config: genConfig
         } as any);
+
+        if (lastResponse.usageMetadata) {
+          metadata.tokens = {
+            prompt: lastResponse.usageMetadata.promptTokenCount,
+            completion: lastResponse.usageMetadata.candidatesTokenCount,
+            total: lastResponse.usageMetadata.totalTokenCount
+          };
+        }
+        metadata.model = 'gemini-3-flash-preview';
 
         let iteration = 0;
         const turnContents = [...contents];
@@ -440,15 +583,26 @@ Core Directive: EXECUTE, DO NOT JUST DESCRIBE.
             contents: turnContents,
             config: genConfig
           } as any);
+
+          if (lastResponse.usageMetadata) {
+             metadata.tokens = {
+               prompt: lastResponse.usageMetadata.promptTokenCount,
+               completion: lastResponse.usageMetadata.candidatesTokenCount,
+               total: lastResponse.usageMetadata.totalTokenCount
+             };
+          }
           iteration++;
         }
         finalResponseText = lastResponse.text || '';
       }
 
+      metadata.latency = Date.now() - startTime;
+
       setMessages(prev => [...prev, { 
         role: 'model', 
         parts: [{ text: finalResponseText }],
-        activities: currentActivities
+        activities: currentActivities,
+        metadata
       }]);
       setActivities([]);
     } catch (err) {
@@ -459,8 +613,8 @@ Core Directive: EXECUTE, DO NOT JUST DESCRIBE.
   };
 
   return (
-    <div className="flex flex-col h-full bg-mimo-bg">
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-10">
+      <div className="flex flex-col h-full bg-mimo-bg">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-10">
         {messages.length === 0 && (
           <div className="h-full flex flex-col items-center justify-center text-center px-12 opacity-30">
             <div className="w-12 h-12 rounded-full border border-mimo-accent flex items-center justify-center mb-6">
@@ -471,76 +625,9 @@ Core Directive: EXECUTE, DO NOT JUST DESCRIBE.
           </div>
         )}
         {messages.map((m, i) => (
-          <div key={i} className="space-y-4">
-            <div className={`flex gap-4 ${m.role === 'user' ? 'flex-row-reverse' : ''}`}>
-              <div className={`w-8 h-8 rounded shrink-0 border transition-colors ${
-                m.role === 'user' 
-                  ? 'bg-mimo-panel border-mimo-border' 
-                  : 'bg-mimo-bg border-mimo-accent flex items-center justify-center'
-              }`}>
-                {m.role === 'model' && <div className="w-1.5 h-1.5 bg-mimo-accent rounded-full" />}
-              </div>
-              <div className="space-y-1">
-                <div className={`text-[9px] font-mono font-bold uppercase tracking-widest opacity-40 ${m.role === 'user' ? 'text-right' : ''}`}>
-                  {m.role === 'user' ? 'User' : 'bldr'}
-                </div>
-                <div className={`text-sm leading-relaxed ${m.role === 'user' ? 'text-mimo-text-muted text-right' : 'text-mimo-text'}`}>
-                  {m.parts[0].text}
-                </div>
-              </div>
-            </div>
-            {m.activities && m.activities.length > 0 && (
-              <div className="flex justify-start ml-12">
-                <div className="flex flex-col gap-2 w-full max-w-xs">
-                  {m.activities.map((act, ai) => (
-                    <div key={ai} className="bg-mimo-panel border border-mimo-border p-3 rounded space-y-2">
-                       <div className="flex items-center justify-between text-[9px] font-mono">
-                         <span className="text-mimo-text-muted">EXECUTING TOOL</span>
-                         <span className="text-green-500 uppercase">Success</span>
-                       </div>
-                       <div className="text-[10px] font-mono text-mimo-accent bg-black/40 p-2 rounded truncate">
-                         {act.name === 'generate_pr' ? 'DOCUMENTING SESSION CHANGES' : `${act.name}(${JSON.stringify(act.args)})`}
-                       </div>
-                       {act.name === 'generate_pr' && (
-                         <div className="p-4 bg-mimo-bg border-l-2 border-mimo-accent rounded-r space-y-4 shadow-xl">
-                            <div className="flex items-center gap-2 mb-2">
-                              <GitBranch className="w-4 h-4 text-mimo-accent" />
-                              <h4 className="font-serif italic text-lg text-mimo-accent uppercase tracking-tight">Deployment Specification</h4>
-                            </div>
-                           <p className="text-xs text-mimo-text leading-relaxed font-medium">{act.args.summary}</p>
-                           <div className="space-y-2 text-mimo-text">
-                             <div className="text-[9px] font-mono text-mimo-text-muted uppercase tracking-widest bg-white/5 p-1 rounded inline-block">Execution Steps</div>
-                             <ul className="text-[10px] font-mono space-y-1.5">
-                               {act.args.changes.map((c: string, ci: number) => (
-                                 <li key={ci} className="flex gap-2">
-                                   <span className="text-mimo-accent text-[8px]">●</span>
-                                   {c}
-                                 </li>
-                               ))}
-                             </ul>
-                           </div>
-                           {act.args.risks && act.args.risks.length > 0 && (
-                             <div className="space-y-2 p-2 bg-red-500/5 border border-red-500/10 rounded">
-                               <div className="text-[9px] font-mono text-red-500/60 uppercase">Stability Delta</div>
-                               <ul className="text-[10px] font-mono space-y-0.5 text-red-500/80">
-                                 {act.args.risks.map((r: string, ri: number) => (
-                                   <li key={ri}>• {r}</li>
-                                 ))}
-                               </ul>
-                             </div>
-                           )}
-                           <button className="w-full py-2 mt-4 bg-mimo-accent/10 border border-mimo-accent/40 text-mimo-accent text-[9px] font-mono uppercase tracking-[0.2em] font-bold hover:bg-mimo-accent hover:text-mimo-bg transition-all">
-                             Finalize & Export PR
-                           </button>
-                         </div>
-                       )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
+          <ChatMessageItem key={i} m={m} />
         ))}
+
 
         {activities.length > 0 && (
           <div className="flex flex-col gap-3 ml-12 border-l border-mimo-border pl-6 py-2">
@@ -605,49 +692,53 @@ Core Directive: EXECUTE, DO NOT JUST DESCRIBE.
         </AnimatePresence>
       </div>
 
-      <div className="p-6 border-t border-mimo-border bg-mimo-panel space-y-4">
-        <div className="flex items-center gap-4">
-          <button 
-            onClick={() => setPlanningMode(!planningMode)}
-            className={`px-3 py-1.5 rounded flex items-center gap-2 text-[9px] font-mono uppercase tracking-widest border transition-all ${
-              planningMode 
-                ? 'bg-mimo-accent/10 border-mimo-accent text-mimo-accent font-bold' 
-                : 'border-mimo-border text-mimo-text-muted hover:border-mimo-text hover:text-mimo-text'
-            }`}
-          >
-            <Zap className={`w-3 h-3 ${planningMode ? 'animate-pulse' : ''}`} />
-            Planning Mode
-          </button>
-          
-          <button 
-            onClick={() => setDryRunEnabled(!dryRunEnabled)}
-            className={`px-3 py-1.5 rounded flex items-center gap-2 text-[9px] font-mono uppercase tracking-widest border transition-all ${
-              dryRunEnabled 
-                ? 'bg-red-500/10 border-red-500 text-red-500 font-bold' 
-                : 'border-mimo-border text-mimo-text-muted hover:border-mimo-text hover:text-mimo-text'
-            }`}
-          >
-            <ShieldCheck className="w-3 h-3" />
-            Dry Run: {dryRunEnabled ? 'ON' : 'OFF'}
-          </button>
+      <div className="p-4 sm:p-6 border-t border-mimo-border bg-mimo-panel space-y-4">
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-4 w-full sm:w-auto">
+            <button 
+              onClick={() => setPlanningMode(!planningMode)}
+              className={`flex-1 sm:flex-none px-3 py-1.5 rounded flex items-center justify-center gap-2 text-[9px] font-mono uppercase tracking-widest border transition-all ${
+                planningMode 
+                  ? 'bg-mimo-accent/10 border-mimo-accent text-mimo-accent font-bold' 
+                  : 'border-mimo-border text-mimo-text-muted hover:border-mimo-text hover:text-mimo-text'
+              }`}
+            >
+              <Zap className={`w-3 h-3 ${planningMode ? 'animate-pulse' : ''}`} />
+              Planning
+            </button>
+            
+            <button 
+              onClick={() => setDryRunEnabled(!dryRunEnabled)}
+              className={`flex-1 sm:flex-none px-3 py-1.5 rounded flex items-center justify-center gap-2 text-[9px] font-mono uppercase tracking-widest border transition-all ${
+                dryRunEnabled 
+                  ? 'bg-red-500/10 border-red-500 text-red-500 font-bold' 
+                  : 'border-mimo-border text-mimo-text-muted hover:border-mimo-text hover:text-mimo-text'
+              }`}
+            >
+              <ShieldCheck className="w-3 h-3" />
+              DRY RUN: {dryRunEnabled ? 'ON' : 'OFF'}
+            </button>
+          </div>
 
-          <div className="ml-auto flex items-center gap-2">
-             <span className="text-[9px] font-mono text-mimo-text-muted uppercase">AI:</span>
-             <select 
-               value={aiProvider}
-               onChange={(e) => setAiProvider(e.target.value as any)}
-               className="bg-mimo-bg border border-mimo-border rounded px-2 py-1 text-[9px] font-mono text-mimo-text focus:outline-none focus:border-mimo-accent"
-             >
-                <option value="gemini">Gemini (Studio)</option>
-                <option value="mimo">MiMo AI</option>
-                <option value="openai">OpenAI</option>
-             </select>
+          <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto sm:ml-auto">
+             <div className="flex items-center gap-1.5 flex-1 sm:flex-none">
+               <span className="text-[9px] font-mono text-mimo-text-muted uppercase">AI:</span>
+               <select 
+                 value={aiProvider}
+                 onChange={(e) => setAiProvider(e.target.value as any)}
+                 className="flex-1 sm:flex-none bg-mimo-bg border border-mimo-border rounded px-2 py-1 text-[9px] font-mono text-mimo-text focus:outline-none focus:border-mimo-accent"
+               >
+                  <option value="gemini">Gemini</option>
+                  <option value="mimo">MiMo</option>
+                  <option value="openai">OpenAI</option>
+               </select>
+             </div>
 
              {aiProvider !== 'gemini' && (
                <select 
                  value={aiTier}
                  onChange={(e) => setAiTier(e.target.value as any)}
-                 className="bg-mimo-bg border border-mimo-border rounded px-2 py-1 text-[9px] font-mono text-mimo-text focus:outline-none focus:border-mimo-accent"
+                 className="flex-1 sm:flex-none bg-mimo-bg border border-mimo-border rounded px-2 py-1 text-[9px] font-mono text-mimo-text focus:outline-none focus:border-mimo-accent"
                >
                   <option value="smart">Smart</option>
                   <option value="fast">Fast</option>
@@ -655,17 +746,19 @@ Core Directive: EXECUTE, DO NOT JUST DESCRIBE.
                </select>
              )}
 
-             <span className="text-[9px] font-mono text-mimo-text-muted uppercase">Target:</span>
-             <select 
-               value={focusRepoId}
-               onChange={(e) => setFocusRepoId(e.target.value)}
-               className="bg-mimo-bg border border-mimo-border rounded px-2 py-1 text-[9px] font-mono text-mimo-text focus:outline-none focus:border-mimo-accent"
-             >
-                <option value="all">Full Workspace</option>
-                {repos.map(r => (
-                  <option key={r.id} value={r.id}>{r.name}</option>
-                ))}
-             </select>
+             <div className="flex items-center gap-1.5 flex-1 sm:flex-none min-w-0">
+               <span className="text-[9px] font-mono text-mimo-text-muted uppercase">REPO:</span>
+               <select 
+                 value={focusRepoId}
+                 onChange={(e) => setFocusRepoId(e.target.value)}
+                 className="w-full sm:w-[120px] bg-mimo-bg border border-mimo-border rounded px-2 py-1 text-[9px] font-mono text-mimo-text focus:outline-none focus:border-mimo-accent overflow-hidden text-ellipsis"
+               >
+                  <option value="all">Full Workspace</option>
+                  {repos.map(r => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
+                  ))}
+               </select>
+             </div>
           </div>
         </div>
 

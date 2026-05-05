@@ -15,6 +15,16 @@ export interface Message {
   role: 'user' | 'model';
   parts: { text: string }[];
   activities?: { name: string; args: any }[];
+  metadata?: {
+    model?: string;
+    tokens?: {
+      prompt: number;
+      completion: number;
+      total: number;
+    };
+    latency?: number;
+    provider?: string;
+  };
 }
 
 export interface TreeNode {
