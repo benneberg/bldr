@@ -27,7 +27,7 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 const DB_PATH = path.join(__dirname, 'mimo.db');
 const WORKSPACE_ROOT = path.join(__dirname, 'workspace');
 const ccc = new CCCService(WORKSPACE_ROOT);
@@ -1207,8 +1207,8 @@ async function startServer() {
     });
   }
 
-  httpServer.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+  httpServer.listen(Number(PORT), '0.0.0.0', () => {
+    console.log(`Server running on port ${PORT}`);
   });
 }
 
