@@ -16,6 +16,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import chokidar from 'chokidar';
 import crypto from 'crypto';
+import compression from 'compression';
 import { CCCService } from './src/services/cccService.js';
 import { PROVIDERS, MODELS } from './src/lib/providers.js';
 
@@ -115,6 +116,7 @@ function applyMigrations() {
 applyMigrations();
 
 const app = express();
+app.use(compression());
 app.use(express.json());
 
 const upload = multer({ dest: 'uploads/' });
@@ -329,6 +331,15 @@ app.get('/api/projects', (req, res) => {
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// Serve static files in production
+if (process.env.NODE_ENV === 'production') {
+  const distPath = path.join(__dirname, 'dist');
+  app.use(express.static(distPath));
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(distPath, 'index.html'));
+  });
+}
 
 // Create project
 app.post('/api/projects', async (req, res) => {

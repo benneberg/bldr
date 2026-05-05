@@ -27,6 +27,94 @@ import { Provider, ModelTier, PROVIDERS, MODELS, DEFAULT_PROVIDER, DEFAULT_TIER 
 
 const ai = new GoogleGenAI({ apiKey: (process as any).env.GEMINI_API_KEY || '' });
 
+const BLDR_TOOLS: any[] = [{
+  functionDeclarations: [
+    {
+      name: 'read_file',
+      description: 'Read the content of a file',
+      parameters: {
+        type: Type.OBJECT,
+        properties: { path: { type: Type.STRING, description: 'Path to file relative to workspace root' } },
+        required: ['path']
+      }
+    },
+    {
+      name: 'write_file',
+      description: 'Write or update a file. ALWAYS include the FULL content.',
+      parameters: {
+        type: Type.OBJECT,
+        properties: {
+          path: { type: Type.STRING, description: 'Path to file' },
+          content: { type: Type.STRING, description: 'Full file content' }
+        },
+        required: ['path', 'content']
+      }
+    },
+    {
+      name: 'list_files',
+      description: 'List all files',
+      parameters: {
+        type: Type.OBJECT,
+        properties: { repositoryId: { type: Type.STRING, description: 'Optional ID' } }
+      }
+    },
+    {
+      name: 'search_files',
+      description: 'Grep search across codebase',
+      parameters: {
+        type: Type.OBJECT,
+        properties: { query: { type: Type.STRING, description: 'Text to search' } },
+        required: ['query']
+      }
+    },
+    {
+      name: 'replace_in_file',
+      description: 'Precise search and replace.',
+      parameters: {
+        type: Type.OBJECT,
+        properties: {
+          path: { type: Type.STRING, description: 'File path' },
+          find: { type: Type.STRING, description: 'Exact string to find' },
+          replace: { type: Type.STRING, description: 'Replacement' }
+        },
+        required: ['path', 'find', 'replace']
+      }
+    },
+    {
+      name: 'analyze_dependencies',
+      description: 'Analyze imports',
+      parameters: { type: Type.OBJECT, properties: {} }
+    },
+    {
+      name: 'generate_pr',
+      description: 'Summarize work session.',
+      parameters: {
+        type: Type.OBJECT,
+        properties: {
+          summary: { type: Type.STRING },
+          changes: { type: Type.ARRAY, items: { type: Type.STRING } }
+        },
+        required: ['summary', 'changes']
+      }
+    },
+    {
+      name: 'run_shell',
+      description: 'Run shell command',
+      parameters: {
+        type: Type.OBJECT,
+        properties: { command: { type: Type.STRING } },
+        required: ['command']
+      }
+    }
+  ]
+}];
+
+const BLDR_SYSTEM_PROMPT = `You are "bldr", an elite AI IDE assistant.
+- Be succinct. Direct action > explanation.
+- Use replace_in_file for localized edits (saves tokens).
+- Read files before modifying.
+- You operate in a workspace; assume paths are relative to root.`;
+
 interface ChatMessageItemProps {
   m: Message;
   key?: React.Key;
@@ -224,46 +312,36 @@ export function ChatPanel({
 
       if (messages.length === 0) {
         try {
-          // Step 1: Try CCC Context
-          try {
-            const cccRes = await fetch('/api/ccc/query', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ projectId, term: textToSend, type: 'context' })
-            });
-            const cccData = await cccRes.json();
-            if (cccData && typeof cccData === 'object' && Object.keys(cccData).length > 0) {
-              fullContext = `### CCC STRUCTURED CONTEXT (Deterministic Reality)\n${JSON.stringify(cccData, null, 2)}\n\n`;
-            }
-          } catch (cccErr) {
-            console.warn('CCC Query failed, falling back:', cccErr);
+          // Tier 1: CCC Context (Architectural Meta-Data)
+          const cccRes = await fetch('/api/ccc/query', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ projectId, term: textToSend, type: 'context' })
+          });
+          const cccData = await cccRes.json();
+          if (cccData && Object.keys(cccData).length > 0) {
+            fullContext = `### WORKSPACE ARCHITECTURE\n${JSON.stringify(cccData, null, 2)}\n\n`;
           }
 
-          // Step 2: Fallback / Supplemental Static Files
-          const filesToRead = ['WORKSPACE.md', 'LLM.md', 'PKML.md'];
-          for (const file of filesToRead) {
-            const res = await fetch(`/api/tools/read_file`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ projectId, path: file })
-            });
-            const data = await res.json();
-            if (data.content) {
-               const header = file === 'WORKSPACE.md' ? 'WORKSPACE OVERVIEW' : (file === 'LLM.md' ? 'ARCHITECTURAL CONVENTIONS' : 'PRODUCT KNOWLEDGE');
-               if (!fullContext.includes(data.content.slice(0, 50))) { // Avoid duplication if CCC already extracted similar info
-                 fullContext += `### ${header} (${file})\n${data.content}\n\n`;
-               }
-            }
+          // Tier 2: Core Guidelines (LLM.md)
+          const llmRes = await fetch(`/api/tools/read_file`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ projectId, path: 'LLM.md' })
+          });
+          const llmData = await llmRes.json();
+          if (llmData.content) {
+            fullContext += `### DEVELOPMENT GUIDELINES\n${llmData.content}\n\n`;
           }
 
-          planningInfo = planningMode ? "\n\nCRITICAL: PLANNING MODE ACTIVE. DO NOT perform file writes or modifications without explicit request. Focus on architectural discussion and planning." : "";
+          planningInfo = planningMode ? "\n\nCRITICAL: PLANNING MODE ACTIVE. NO WRITES." : "";
 
           if (fullContext) {
-            contents[0].parts.unshift({ text: `bldr SYSTEM CONTEXT (CCC + PKML Mode)${planningInfo}:\n\n${fullContext}\n--- USER GOAL ---` });
-          } else if (planningMode) {
-            contents[0].parts.unshift({ text: `bldr SYSTEM CONTEXT: ${planningInfo}\n--- USER GOAL ---` });
+            contents[0].parts.unshift({ text: `bldr CONTEXT LAYER${planningInfo}:\n\n${fullContext}\n--- GOAL ---` });
           }
-        } catch (e) {}
+        } catch (e) {
+          console.error('Context initialization failed:', e);
+        }
       }
 
       const tools = [{
