@@ -17,6 +17,7 @@ import { promisify } from 'util';
 import chokidar from 'chokidar';
 import crypto from 'crypto';
 import { CCCService } from './src/services/cccService.js';
+import { PROVIDERS, MODELS } from './src/lib/providers.js';
 
 const execAsync = promisify(exec);
 
@@ -368,6 +369,49 @@ app.post('/api/ccc/query', async (req, res) => {
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// --- AI Proxy ---
+app.post('/api/ai', async (req, res) => {
+  const { provider, tier, messages, tools, tool_choice, temperature } = req.body;
+  
+  const providerConfig = PROVIDERS[provider as keyof typeof PROVIDERS];
+  if (!providerConfig) {
+    return res.status(400).json({ error: `Unknown provider: ${provider}` });
+  }
+
+  const model = MODELS[provider as keyof typeof MODELS]?.[tier as keyof (typeof MODELS)['mimo']];
+  if (!model) {
+    return res.status(400).json({ error: `Unknown tier ${tier} for provider ${provider}` });
+  }
+
+  const apiKey = process.env[providerConfig.apiKeyEnv];
+  if (!apiKey) {
+    return res.status(500).json({ error: `API key for ${provider} (${providerConfig.apiKeyEnv}) is not configured on the server.` });
+  }
+
+  try {
+    const response = await axios.post(`${providerConfig.baseURL}/chat/completions`, {
+      model,
+      messages,
+      tools,
+      tool_choice,
+      temperature,
+    }, {
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      timeout: 55000,
+    });
+
+    res.json(response.data);
+  } catch (err: any) {
+    const status = err.response?.status || 500;
+    const body = err.response?.data || { error: err.message };
+    console.error(`AI Proxy Error [${provider}]:`, body);
+    res.status(status).json(body);
   }
 });
 

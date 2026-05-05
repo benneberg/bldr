@@ -18,6 +18,8 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI, Type } from "@google/genai";
 import { Message } from '../../types';
+import { callAI, ChatMessage, MiMoTool } from '../../lib/mimo';
+import { Provider, ModelTier, PROVIDERS, MODELS, DEFAULT_PROVIDER, DEFAULT_TIER } from '../../lib/providers';
 
 const ai = new GoogleGenAI({ apiKey: (process as any).env.GEMINI_API_KEY || '' });
 
@@ -47,6 +49,8 @@ export function ChatPanel({
   const [activities, setActivities] = useState<{name: string, args: any}[]>([]);
   const [repos, setRepos] = useState<any[]>([]);
   const [focusRepoId, setFocusRepoId] = useState<string>('all');
+  const [aiProvider, setAiProvider] = useState<Provider | 'gemini'>(DEFAULT_PROVIDER);
+  const [aiTier, setAiTier] = useState<ModelTier>(DEFAULT_TIER);
   const [dryRunEnabled, setDryRunEnabled] = useState(false);
   const [pendingWrite, setPendingWrite] = useState<{ call: any, resolve: (approved: boolean) => void } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -91,10 +95,12 @@ export function ChatPanel({
       }));
       contents.push({ role: 'user', parts: [{ text: textToSend }] });
 
+      let fullContext = '';
+      let planningInfo = '';
+
       if (messages.length === 0) {
         try {
           // Step 1: Try CCC Context
-          let fullContext = '';
           try {
             const cccRes = await fetch('/api/ccc/query', {
               method: 'POST',
@@ -126,7 +132,7 @@ export function ChatPanel({
             }
           }
 
-          const planningInfo = planningMode ? "\n\nCRITICAL: PLANNING MODE ACTIVE. DO NOT perform file writes or modifications without explicit request. Focus on architectural discussion and planning." : "";
+          planningInfo = planningMode ? "\n\nCRITICAL: PLANNING MODE ACTIVE. DO NOT perform file writes or modifications without explicit request. Focus on architectural discussion and planning." : "";
 
           if (fullContext) {
             contents[0].parts.unshift({ text: `bldr SYSTEM CONTEXT (CCC + PKML Mode)${planningInfo}:\n\n${fullContext}\n--- USER GOAL ---` });
@@ -234,6 +240,25 @@ export function ChatPanel({
         ]
       }];
 
+      const mimoTools: MiMoTool[] = tools[0].functionDeclarations.map(fd => ({
+        type: 'function',
+        function: {
+          name: fd.name,
+          description: fd.description,
+          parameters: {
+            type: 'object',
+            properties: Object.entries(fd.parameters.properties || {}).reduce((acc: any, [k, v]: any) => {
+              acc[k] = { type: v.type.toLowerCase(), description: v.description };
+              if (v.items) {
+                acc[k].items = { type: v.items.type.toLowerCase() };
+              }
+              return acc;
+            }, {}),
+            required: fd.parameters.required || []
+          }
+        }
+      }));
+
       const systemInstruction = `You are "bldr", an elite AI-powered IDE assistant and senior software engineer.
 Core Directive: EXECUTE, DO NOT JUST DESCRIBE.
 1. bldr is an execution engine. If you need to create, modify, or delete files, you MUST use the provided tools (write_file, replace_in_file, run_shell).
@@ -248,89 +273,181 @@ Core Directive: EXECUTE, DO NOT JUST DESCRIBE.
         tools: tools as any
       };
 
-      let lastResponse = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents,
-        config: genConfig
-      } as any);
-
-      let iteration = 0;
       const currentActivities: any[] = [];
-      const turnContents = [...contents];
+      let finalResponseText = '';
 
-      while (lastResponse.candidates?.[0]?.content?.parts?.some((p: any) => p.functionCall) && iteration < 10) {
-        const toolResponses: any[] = [];
-        const parts = lastResponse.candidates?.[0]?.content?.parts?.filter((p: any) => p.functionCall) || [];
-        
-        console.log(`[bldr] AI requested ${parts.length} tool calls (Iteration ${iteration + 1})`, parts);
+      if (aiProvider === 'mimo' || aiProvider === 'openai') {
+        // MiMo / OpenAI flow
+        const mimoMessages: ChatMessage[] = [
+          { role: 'system', content: systemInstruction }
+        ];
 
-        for (const part of (parts as any[])) {
-          const call = part.functionCall;
-          if (!call) continue;
-
-          if ((call.name === 'write_file' || call.name === 'replace_in_file') && dryRunEnabled) {
-            const approved = await new Promise<boolean>((resolve) => {
-              setPendingWrite({ call, resolve });
-            });
-            setPendingWrite(null);
-            if (!approved) {
-              toolResponses.push({
-                functionResponse: {
-                  name: call.name,
-                  response: { error: 'Operation rejected by user (Dry Run active)' }
-                }
-              });
-              continue;
-            }
-          }
-
-          const act = { name: call.name, args: call.args };
-          currentActivities.push(act);
-          setActivities([...currentActivities]);
-          
-          if (call.name === 'run_shell') {
-            const { command } = call.args as any;
-            setTerminalOutput(prev => [...prev, `> ${command}`]);
-          }
-
-          let toolResult;
-          try {
-            const res = await fetch(`/api/tools/${call.name}`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ projectId, ...call.args })
-            });
-            toolResult = await res.json();
-            if (call.name === 'run_shell') {
-              if (toolResult.stdout) setTerminalOutput(prev => [...prev, toolResult.stdout]);
-              if (toolResult.stderr) setTerminalOutput(prev => [...prev, `ERROR: ${toolResult.stderr}`]);
-            }
-          } catch (err: any) {
-            toolResult = { error: err.message };
-          }
-          
-          toolResponses.push({
-            functionResponse: {
-              name: call.name,
-              response: toolResult
-            }
-          });
+        // Format contextual messages
+        if (messages.length === 0 && fullContext) {
+           mimoMessages.push({ role: 'user', content: `bldr SYSTEM CONTEXT (CCC + PKML Mode)${planningInfo}:\n\n${fullContext}\n--- USER GOAL ---\n${textToSend}` });
+        } else {
+           messages.forEach(m => {
+             mimoMessages.push({ role: m.role === 'model' ? 'assistant' : 'user', content: m.parts[0].text });
+           });
+           if (messages.length > 0) {
+             mimoMessages.push({ role: 'user', content: textToSend });
+           }
         }
 
-        turnContents.push(lastResponse.candidates?.[0]?.content as any);
-        turnContents.push({ role: 'function', parts: toolResponses } as any);
+        let iteration = 0;
+        while (iteration < 10) {
+          const response = await callAI({
+            provider: aiProvider,
+            tier: aiTier,
+            messages: mimoMessages,
+            tools: mimoTools
+          });
 
-        lastResponse = await ai.models.generateContent({
+          const choice = response.choices[0];
+          const toolCalls = choice.message.tool_calls;
+
+          if (choice.message.content) {
+            finalResponseText = choice.message.content;
+            mimoMessages.push({ role: 'assistant', content: choice.message.content });
+          }
+
+          if (toolCalls && toolCalls.length > 0) {
+            const toolResults: any[] = [];
+            for (const call of toolCalls) {
+              const name = call.function.name;
+              const args = JSON.parse(call.function.arguments);
+
+              if ((name === 'write_file' || name === 'replace_in_file') && dryRunEnabled) {
+                const approved = await new Promise<boolean>((resolve) => {
+                  setPendingWrite({ call: { name, args }, resolve });
+                });
+                setPendingWrite(null);
+                if (!approved) {
+                  toolResults.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify({ error: 'Rejected by user' }) });
+                  continue;
+                }
+              }
+
+              const act = { name, args };
+              currentActivities.push(act);
+              setActivities([...currentActivities]);
+
+              if (name === 'run_shell') setTerminalOutput(prev => [...prev, `> ${args.command}`]);
+
+              let result;
+              try {
+                const res = await fetch(`/api/tools/${name}`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ projectId, ...args })
+                });
+                result = await res.json();
+                if (name === 'run_shell') {
+                  if (result.stdout) setTerminalOutput(prev => [...prev, result.stdout]);
+                  if (result.stderr) setTerminalOutput(prev => [...prev, `ERROR: ${result.stderr}`]);
+                }
+              } catch (e: any) {
+                result = { error: e.message };
+              }
+
+              toolResults.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) });
+            }
+            
+            // Add messages manually for next iteration as callAI expects ChatMessage
+            mimoMessages.push({ role: 'assistant', content: choice.message.content || '', tool_calls: toolCalls } as any);
+            toolResults.forEach(tr => mimoMessages.push({ role: 'tool' as any, tool_call_id: tr.tool_call_id, content: tr.content } as any));
+            
+            iteration++;
+          } else {
+            break;
+          }
+        }
+      } else {
+        // GEMINI FLOW
+        let lastResponse = await ai.models.generateContent({
           model: 'gemini-3-flash-preview',
-          contents: turnContents,
+          contents,
           config: genConfig
         } as any);
-        iteration++;
+
+        let iteration = 0;
+        const turnContents = [...contents];
+
+        while (lastResponse.candidates?.[0]?.content?.parts?.some((p: any) => p.functionCall) && iteration < 10) {
+          const toolResponses: any[] = [];
+          const parts = lastResponse.candidates?.[0]?.content?.parts?.filter((p: any) => p.functionCall) || [];
+          
+          console.log(`[bldr] AI requested ${parts.length} tool calls (Iteration ${iteration + 1})`, parts);
+
+          for (const part of (parts as any[])) {
+            const call = part.functionCall;
+            if (!call) continue;
+
+            if ((call.name === 'write_file' || call.name === 'replace_in_file') && dryRunEnabled) {
+              const approved = await new Promise<boolean>((resolve) => {
+                setPendingWrite({ call, resolve });
+              });
+              setPendingWrite(null);
+              if (!approved) {
+                toolResponses.push({
+                  functionResponse: {
+                    name: call.name,
+                    response: { error: 'Operation rejected by user (Dry Run active)' }
+                  }
+                });
+                continue;
+              }
+            }
+
+            const act = { name: call.name, args: call.args };
+            currentActivities.push(act);
+            setActivities([...currentActivities]);
+            
+            if (call.name === 'run_shell') {
+              const { command } = call.args as any;
+              setTerminalOutput(prev => [...prev, `> ${command}`]);
+            }
+
+            let toolResult;
+            try {
+              const res = await fetch(`/api/tools/${call.name}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ projectId, ...call.args })
+              });
+              toolResult = await res.json();
+              if (call.name === 'run_shell') {
+                if (toolResult.stdout) setTerminalOutput(prev => [...prev, toolResult.stdout]);
+                if (toolResult.stderr) setTerminalOutput(prev => [...prev, `ERROR: ${toolResult.stderr}`]);
+              }
+            } catch (err: any) {
+              toolResult = { error: err.message };
+            }
+            
+            toolResponses.push({
+              functionResponse: {
+                name: call.name,
+                response: toolResult
+              }
+            });
+          }
+
+          turnContents.push(lastResponse.candidates?.[0]?.content as any);
+          turnContents.push({ role: 'function', parts: toolResponses } as any);
+
+          lastResponse = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: turnContents,
+            config: genConfig
+          } as any);
+          iteration++;
+        }
+        finalResponseText = lastResponse.text || '';
       }
 
       setMessages(prev => [...prev, { 
         role: 'model', 
-        parts: [{ text: lastResponse.text || '' }],
+        parts: [{ text: finalResponseText }],
         activities: currentActivities
       }]);
       setActivities([]);
@@ -515,6 +632,29 @@ Core Directive: EXECUTE, DO NOT JUST DESCRIBE.
           </button>
 
           <div className="ml-auto flex items-center gap-2">
+             <span className="text-[9px] font-mono text-mimo-text-muted uppercase">AI:</span>
+             <select 
+               value={aiProvider}
+               onChange={(e) => setAiProvider(e.target.value as any)}
+               className="bg-mimo-bg border border-mimo-border rounded px-2 py-1 text-[9px] font-mono text-mimo-text focus:outline-none focus:border-mimo-accent"
+             >
+                <option value="gemini">Gemini (Studio)</option>
+                <option value="mimo">MiMo AI</option>
+                <option value="openai">OpenAI</option>
+             </select>
+
+             {aiProvider !== 'gemini' && (
+               <select 
+                 value={aiTier}
+                 onChange={(e) => setAiTier(e.target.value as any)}
+                 className="bg-mimo-bg border border-mimo-border rounded px-2 py-1 text-[9px] font-mono text-mimo-text focus:outline-none focus:border-mimo-accent"
+               >
+                  <option value="smart">Smart</option>
+                  <option value="fast">Fast</option>
+                  <option value="cheap">Cheap</option>
+               </select>
+             )}
+
              <span className="text-[9px] font-mono text-mimo-text-muted uppercase">Target:</span>
              <select 
                value={focusRepoId}
