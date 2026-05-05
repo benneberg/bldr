@@ -903,20 +903,34 @@ app.post('/api/tools/read_file', async (req, res) => {
 });
 
 app.post('/api/tools/write_file', async (req, res) => {
-  const { projectId, path: filePath, content } = req.body;
-  console.log(`[write_file] Project: ${projectId}, Path: ${filePath}, Content length: ${content?.length || 0}`);
+  const { projectId, path: filePath, content, sessionId } = req.body;
+
+  console.log(
+    `[write_file] Project: ${projectId}, Path: ${filePath}, Content length: ${content?.length || 0}`
+  );
+
   try {
+    if (!projectId || !filePath || typeof content !== 'string') {
+      return res.status(400).json({ error: 'Invalid input' });
+    }
+
     const fullPath = sanitizePath(projectId, filePath);
     console.log(`[write_file] Resolved path: ${fullPath}`);
+
     const dir = path.dirname(fullPath);
+
     if (!existsSync(dir)) {
       console.log(`[write_file] Creating directory: ${dir}`);
       await fs.mkdir(dir, { recursive: true });
     }
+
     await fs.writeFile(fullPath, content);
     console.log(`[write_file] File written successfully`);
-    db.prepare('INSERT OR REPLACE INTO files (project_id, path, size) VALUES (?, ?, ?)')
-      .run(projectId, filePath, content.length);
+
+    db.prepare(
+      'INSERT OR REPLACE INTO files (project_id, path, size) VALUES (?, ?, ?)'
+    ).run(projectId, filePath, content.length);
+
     console.log(`[write_file] Database updated`);
 
     const cccResult = await ccc.run(projectId);
@@ -924,22 +938,35 @@ app.post('/api/tools/write_file', async (req, res) => {
 
     emitDebugEvent(io, {
       projectId,
-      sessionId: req.body.sessionId || 'ai-session',
+      sessionId: sessionId || 'ai-session',
       type: 'fs:change',
       gitRef: { branch: 'main', commit: 'head' },
       cccTier: 1,
-      payload: { event: 'write_file', path: filePath, ccc: cccResult }
+      payload: {
+        event: 'write_file',
+        path: filePath,
+        ccc: cccResult,
+      },
+      replayable: true,
     });
 
-    io.to(projectId).emit('fs_event', { type: 'write', path: filePath, projectId });
+    io.to(projectId).emit('fs_event', {
+      type: 'write',
+      path: filePath,
+      projectId,
+    });
 
-    res.json({ success: true });
+    return res.json({
+      success: true,
       replayable: true,
-      payload: { action: 'write_file', path: filePath }});
+      payload: { action: 'write_file', path: filePath },
+    });
 
-    res.json({ success: true });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (err: unknown) {
+    const message =
+      err instanceof Error ? err.message : 'Unknown error';
+
+    return res.status(500).json({ error: message });
   }
 });
 
