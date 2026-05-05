@@ -234,20 +234,40 @@ export function ChatPanel({
         ]
       }];
 
+      const systemInstruction = `You are "bldr", an elite AI-powered IDE assistant and senior software engineer.
+Core Directive: EXECUTE, DO NOT JUST DESCRIBE.
+1. bldr is an execution engine. If you need to create, modify, or delete files, you MUST use the provided tools (write_file, replace_in_file, run_shell).
+2. DO NOT output code blocks in markdown if you should be writing them to files. 
+3. Always provide FULL file content when using write_file. 
+4. Reference CCC context (Structured Context) to maintain architectural integrity.
+5. If Planning Mode is active, focus on discussion. If it is NOT active, proceed directly to execution.
+6. Verify all changes through analysis tools if available.`;
+
+      const genConfig = {
+        systemInstruction,
+        tools: tools as any
+      };
+
       let lastResponse = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents,
-        tools: tools as any
+        config: genConfig
       } as any);
 
       let iteration = 0;
       const currentActivities: any[] = [];
+      const turnContents = [...contents];
 
       while (lastResponse.candidates?.[0]?.content?.parts?.some((p: any) => p.functionCall) && iteration < 10) {
         const toolResponses: any[] = [];
-        const calls = lastResponse.candidates?.[0]?.content?.parts?.filter((p: any) => p.functionCall) || [];
+        const parts = lastResponse.candidates?.[0]?.content?.parts?.filter((p: any) => p.functionCall) || [];
+        
+        console.log(`[bldr] AI requested ${parts.length} tool calls (Iteration ${iteration + 1})`, parts);
 
-        for (const call of (calls as any[])) {
+        for (const part of (parts as any[])) {
+          const call = part.functionCall;
+          if (!call) continue;
+
           if ((call.name === 'write_file' || call.name === 'replace_in_file') && dryRunEnabled) {
             const approved = await new Promise<boolean>((resolve) => {
               setPendingWrite({ call, resolve });
@@ -297,10 +317,14 @@ export function ChatPanel({
           });
         }
 
+        turnContents.push(lastResponse.candidates?.[0]?.content as any);
+        turnContents.push({ role: 'function', parts: toolResponses } as any);
+
         lastResponse = await ai.models.generateContent({
           model: 'gemini-3-flash-preview',
-          contents: [...contents, lastResponse.candidates?.[0]?.content as any, { role: 'function', parts: toolResponses }]
-        });
+          contents: turnContents,
+          config: genConfig
+        } as any);
         iteration++;
       }
 
@@ -406,7 +430,7 @@ export function ChatPanel({
             {activities.map((a, i) => (
               <div key={i} className="flex items-center gap-3 text-[10px] font-mono">
                 <Loader2 className="w-3 h-3 animate-spin text-mimo-accent" />
-                <span className="text-mimo-text animate-pulse">{a.name.toUpperCase()}...</span>
+                <span className="text-mimo-text animate-pulse">{(a.name || 'UNKNOWN').toUpperCase()}...</span>
               </div>
             ))}
           </div>
@@ -433,7 +457,7 @@ export function ChatPanel({
                  <h4 className="font-bold uppercase text-[10px] tracking-widest">Dry Run Interception</h4>
                </div>
                <div className="space-y-1">
-                 <p className="text-xs font-mono">Request: {pendingWrite.call.name.toUpperCase()} <span className="text-mimo-accent">"{pendingWrite.call.args.path}"</span></p>
+                 <p className="text-xs font-mono">Request: {(pendingWrite.call.name || 'UNKNOWN').toUpperCase()} <span className="text-mimo-accent">"{(pendingWrite.call.args as any).path || (pendingWrite.call.args as any).command}"</span></p>
                  <div className="bg-black/50 p-3 rounded font-mono text-[10px] max-h-40 overflow-y-auto">
                    {pendingWrite.call.name === 'write_file' ? (
                      <pre className="whitespace-pre-wrap">{pendingWrite.call.args.content}</pre>
