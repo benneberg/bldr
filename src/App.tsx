@@ -84,8 +84,32 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    fetchProjects();
+    fetchProjects().then(() => {
+      const savedProject = localStorage.getItem('bldr_last_project');
+      if (savedProject) setSelectedProjectId(savedProject);
+    });
   }, []);
+
+  useEffect(() => {
+    if (selectedProjectId) {
+      localStorage.setItem('bldr_last_project', selectedProjectId);
+      // Fetch chat history
+      fetch(`/api/projects/${selectedProjectId}/chat`)
+        .then(res => res.json())
+        .then(data => setMessages(data));
+    }
+  }, [selectedProjectId]);
+
+  useEffect(() => {
+    if (selectedProjectId && messages.length > 0) {
+      // Save chat history (debounced would be better but let's start simple)
+      fetch(`/api/projects/${selectedProjectId}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages })
+      });
+    }
+  }, [messages, selectedProjectId]);
 
   useEffect(() => {
     if (selectedProjectId) {

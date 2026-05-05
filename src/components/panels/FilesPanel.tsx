@@ -11,7 +11,12 @@ import {
   Search, 
   ChevronDown, 
   ChevronRight, 
-  FileCode 
+  FileCode,
+  GitCommit,
+  UploadCloud,
+  FileX,
+  RefreshCcw,
+  Sparkles
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import CodeMirror from '@uiw/react-codemirror';
@@ -36,7 +41,23 @@ export function FilesPanel({
   socket
 }: FilesPanelProps) {
   const [files, setFiles] = useState<FileEntry[]>([]);
+  const [gitStatus, setGitStatus] = useState<Record<string, 'staged' | 'modified' | 'untracked' | 'deleted'>>({});
+  const [showGitignore, setShowGitignore] = useState(false);
+  const [gitignoreContent, setGitignoreContent] = useState('');
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+
+  useEffect(() => {
+    const saved = localStorage.getItem(`bldr_open_${projectId}`);
+    if (saved) handleOpenFile(saved);
+  }, [projectId]);
+
+  useEffect(() => {
+    if (selectedFile) {
+      localStorage.setItem(`bldr_open_${projectId}`, selectedFile);
+    } else {
+      localStorage.removeItem(`bldr_open_${projectId}`);
+    }
+  }, [selectedFile, projectId]);
   const [content, setContent] = useState<string | null>(null);
   const [editedContent, setEditedContent] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
@@ -75,6 +96,54 @@ export function FilesPanel({
     }
   }, [selectedFile, socket]);
 
+  const fetchGitStatus = async () => {
+    try {
+      const res = await fetch('/api/git/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId })
+      });
+      const data = await res.json();
+      const statusMap: Record<string, any> = {};
+      data.files?.forEach((f: any) => {
+        statusMap[f.path] = f.status;
+      });
+      setGitStatus(statusMap);
+    } catch (e) {
+      console.error('Failed to fetch git status:', e);
+    }
+  };
+
+  const fetchGitignore = async () => {
+    const res = await fetch(`/api/git/gitignore/${projectId}`);
+    const data = await res.json();
+    setGitignoreContent(data.content || '');
+  };
+
+  const handleSaveGitignore = async () => {
+    setIsLoading(true);
+    try {
+      await fetch('/api/git/gitignore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId, content: gitignoreContent })
+      });
+      setShowGitignore(false);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSuggestGitignore = async () => {
+    setIsLoading(true);
+    try {
+      const common = `# Node\nnode_modules/\ndist/\n.next/\n\n# AI Studio\nworkspace/\ncontext/\nmimo.db\n.env\n`;
+      setGitignoreContent(prev => prev + (prev ? '\n' : '') + common);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
     const fetchFiles = async () => {
       const res = await fetch(`/api/files/${projectId}`);
@@ -83,11 +152,12 @@ export function FilesPanel({
     };
     
     fetchFiles();
+    fetchGitStatus();
 
     if (socket) {
-      socket.on('fs_event', (event) => {
-        console.log('FS Sync event:', event);
+      socket.on('fs_event', () => {
         fetchFiles();
+        fetchGitStatus();
       });
       return () => {
         socket.off('fs_event');
@@ -132,7 +202,45 @@ export function FilesPanel({
     }
   };
 
-  const tree = buildTree(files);
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const filesToUpload = e.target.files;
+    if (!filesToUpload || !projectId) return;
+    setIsLoading(true);
+    const formData = new FormData();
+    Array.from(filesToUpload).forEach(f => formData.append('files', f as File));
+    
+    try {
+      await fetch(`/api/projects/${projectId}/upload`, {
+        method: 'POST',
+        body: formData
+      });
+      // Refresh file list
+      const res = await fetch(`/api/files/${projectId}`);
+      const data = await res.json();
+      setFiles(data);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleGitCommit = async () => {
+    const message = prompt('Commit Message:');
+    if (!message) return;
+    setIsLoading(true);
+    try {
+      const res = await fetch('/api/git/commit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId, message })
+      });
+      const data = await res.json();
+      alert(data.success ? 'Changes committed successfully' : 'Git Error: ' + data.error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const tree = buildTree(files, gitStatus);
 
   if (selectedFile) {
     return (
@@ -243,6 +351,38 @@ export function FilesPanel({
 
   return (
     <div className="h-full flex flex-col bg-mimo-bg overflow-hidden text-mimo-text">
+      {showGitignore && (
+        <div className="absolute inset-0 z-50 bg-mimo-bg/95 flex flex-col p-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <FileX className="w-5 h-5 text-mimo-accent" />
+              <h2 className="font-serif italic text-lg uppercase">Ignore Patterns</h2>
+            </div>
+            <button onClick={() => setShowGitignore(false)} className="text-mimo-text-muted hover:text-white">CLOSE</button>
+          </div>
+          <textarea
+            value={gitignoreContent}
+            onChange={(e) => setGitignoreContent(e.target.value)}
+            className="flex-1 bg-black/40 border border-mimo-border rounded-xl p-4 font-mono text-xs focus:outline-none focus:border-mimo-accent transition-all mb-4"
+            placeholder="node_modules/..."
+          />
+          <div className="flex gap-4">
+             <button 
+                onClick={handleSuggestGitignore}
+                className="flex-1 py-3 bg-white/5 border border-mimo-border rounded-full font-mono text-[10px] uppercase font-bold text-mimo-accent flex items-center justify-center gap-2"
+              >
+                <Sparkles className="w-4 h-4" />
+                AI Generate
+              </button>
+              <button 
+                onClick={handleSaveGitignore}
+                className="flex-1 py-3 bg-mimo-accent text-mimo-bg rounded-full font-mono text-[10px] uppercase font-bold"
+              >
+                Apply Changes
+              </button>
+          </div>
+        </div>
+      )}
       <div className="px-6 py-4 border-b border-mimo-border bg-mimo-panel shrink-0 space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-mimo-text">
@@ -250,6 +390,44 @@ export function FilesPanel({
             <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-mimo-text-muted">Repository Context</span>
           </div>
           <div className="flex items-center gap-2">
+            <button 
+              onClick={() => { fetchGitStatus(); }}
+              className="p-1.5 hover:bg-white/5 rounded-lg text-mimo-text-muted transition-all"
+              title="Refresh Status"
+            >
+              <RefreshCcw className="w-3 h-3" />
+            </button>
+             <button 
+              onClick={() => { fetchGitignore(); setShowGitignore(true); }}
+              className="px-3 py-1 bg-white/5 border border-mimo-border hover:border-mimo-accent hover:text-mimo-accent rounded-full text-[9px] font-mono transition-all flex items-center gap-2"
+              title="Manage .gitignore"
+            >
+              <FileX className="w-3 h-3" />
+              IGNORE
+            </button>
+            <button 
+              onClick={handleGitCommit}
+              className="px-3 py-1 bg-white/5 border border-mimo-border hover:border-mimo-accent hover:text-mimo-accent rounded-full text-[9px] font-mono transition-all flex items-center gap-2"
+              title="Git Commit"
+            >
+              <GitCommit className="w-3 h-3" />
+              COMMIT
+            </button>
+            <input 
+              type="file" 
+              multiple 
+              onChange={handleFileUpload} 
+              className="hidden" 
+              id="file-upload-input" 
+            />
+            <button 
+              onClick={() => document.getElementById('file-upload-input')?.click()}
+              className="px-3 py-1 bg-white/5 border border-mimo-border hover:border-mimo-accent hover:text-mimo-accent rounded-full text-[9px] font-mono transition-all flex items-center gap-2"
+              title="Upload Local Files"
+            >
+              <UploadCloud className="w-3 h-3" />
+              UPLOAD
+            </button>
             <button 
               onClick={() => onReview(files.map(f => f.path))}
               className="px-3 py-1 bg-mimo-accent/10 border border-mimo-accent/20 hover:border-mimo-accent text-mimo-accent rounded-full text-[9px] font-mono transition-all flex items-center gap-2"
@@ -303,22 +481,28 @@ export function FilesPanel({
   );
 }
 
-function buildTree(files: FileEntry[]): TreeNode {
+function buildTree(files: FileEntry[], gitStatus: Record<string, string>): TreeNode {
   const root: TreeNode = { name: 'root', path: '', children: {} };
   files.forEach(file => {
     const parts = file.path.split('/');
     let current = root;
     parts.forEach((part, i) => {
+      const currentPath = parts.slice(0, i + 1).join('/');
       if (!current.children) current.children = {};
       if (!current.children[part]) {
         current.children[part] = {
           name: part,
-          path: parts.slice(0, i + 1).join('/'),
+          path: currentPath,
           children: i < parts.length - 1 ? {} : undefined,
-          size: i === parts.length - 1 ? file.size : undefined
+          size: i === parts.length - 1 ? file.size : undefined,
+          gitStatus: gitStatus[currentPath] as any
         };
       }
       current = current.children[part];
+      // Propagate status up to folders
+      if (gitStatus[currentPath]) {
+        current.gitStatus = gitStatus[currentPath] as any;
+      }
     });
   });
   return root;
@@ -390,9 +574,19 @@ function FileTreeNode(props: FileTreeNodeProps) {
             <FileCode className="w-3 h-3" />
           )}
         </span>
-        <span className={`text-[11px] font-mono truncate ${isFolder ? 'font-bold text-white/80' : 'text-mimo-text'} ${nameMatches ? 'text-mimo-accent' : ''}`}>
+        <span className={`text-[11px] font-mono truncate flex-1 ${isFolder ? 'font-bold text-white/80' : 'text-mimo-text'} ${nameMatches ? 'text-mimo-accent' : ''}`}>
           {node.name}
         </span>
+        {node.gitStatus && (
+          <span className={`text-[8px] font-mono uppercase px-1 rounded ${
+            node.gitStatus === 'staged' ? 'bg-green-500/20 text-green-400' :
+            node.gitStatus === 'modified' ? 'bg-yellow-500/20 text-yellow-400' :
+            node.gitStatus === 'untracked' ? 'bg-blue-500/20 text-blue-400' :
+            'bg-red-500/20 text-red-400'
+          }`}>
+            {node.gitStatus[0]}
+          </span>
+        )}
       </button>
 
       {isFolder && isOpen && (

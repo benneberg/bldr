@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Github, UploadCloud, Loader2 } from 'lucide-react';
+import { Github, UploadCloud, Loader2, Plus } from 'lucide-react';
 import { motion } from 'motion/react';
 
 export function TabButton({ active, onClick, icon, label }: { active: boolean, onClick: () => void, icon: React.ReactNode, label: string }) {
@@ -42,6 +42,23 @@ export function ImportPanel({ onImport, isImporting }: { onImport: (url: string,
     }
   };
 
+  const handleCreateEmpty = async () => {
+    setIsZipping(true); // Reuse loading state
+    try {
+      const res = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name || 'New Project' })
+      });
+      const data = await res.json();
+      if (data.id) {
+        window.location.reload();
+      }
+    } finally {
+      setIsZipping(false);
+    }
+  };
+
   return (
     <div className="bg-mimo-panel rounded-xl shadow-2xl border border-mimo-border p-6 space-y-6">
       <div className="flex items-center gap-3">
@@ -49,8 +66,8 @@ export function ImportPanel({ onImport, isImporting }: { onImport: (url: string,
           <Github className="text-mimo-accent w-6 h-6" />
         </div>
         <div>
-          <h3 className="font-serif italic text-lg leading-tight">Project Import</h3>
-          <p className="text-[10px] font-mono text-mimo-text-muted uppercase tracking-wider">GitHub or Local ZIP</p>
+          <h3 className="font-serif italic text-lg leading-tight">Project Access</h3>
+          <p className="text-[10px] font-mono text-mimo-text-muted uppercase tracking-wider">Deploy Code or Start Empty</p>
         </div>
       </div>
       <div className="space-y-4">
@@ -64,6 +81,15 @@ export function ImportPanel({ onImport, isImporting }: { onImport: (url: string,
             onChange={(e) => setName(e.target.value)}
           />
         </div>
+
+        <button 
+            onClick={handleCreateEmpty}
+            disabled={isZipping || isImporting}
+            className="w-full py-4 bg-white/5 border border-white/10 text-mimo-text hover:text-mimo-accent hover:border-mimo-accent rounded-full font-bold uppercase text-[10px] tracking-widest active:scale-[0.98] transition-all disabled:opacity-30 flex items-center justify-center gap-2"
+        >
+          {isZipping && !fileInputRef.current?.files?.length ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+          Start Blank Project
+        </button>
 
         <div className="space-y-2 pt-2 border-t border-mimo-border/50">
           <div className="space-y-1">

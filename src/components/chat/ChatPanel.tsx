@@ -150,6 +150,31 @@ export function ChatPanel({
             }
           },
           {
+            name: 'search_files',
+            description: 'Search for text across the entire codebase and return file paths with line numbers',
+            parameters: {
+              type: Type.OBJECT,
+              properties: {
+                query: { type: Type.STRING, description: 'Text to search for' }
+              },
+              required: ['query']
+            }
+          },
+          {
+            name: 'replace_in_file',
+            description: 'Find and replace a specific string within a file. Best for targeted edits.',
+            parameters: {
+              type: Type.OBJECT,
+              properties: {
+                path: { type: Type.STRING, description: 'Path to file' },
+                find: { type: Type.STRING, description: 'The exact string to find' },
+                replace: { type: Type.STRING, description: 'The replacement string' },
+                dry_run: { type: Type.BOOLEAN, description: 'Show diff without applying changes' }
+              },
+              required: ['path', 'find', 'replace']
+            }
+          },
+          {
             name: 'search_code',
             description: 'Search for string or regex patterns across the codebase',
             parameters: {
@@ -205,7 +230,7 @@ export function ChatPanel({
         const calls = lastResponse.candidates?.[0]?.content?.parts?.filter((p: any) => p.functionCall) || [];
 
         for (const call of (calls as any[])) {
-          if (call.name === 'write_file' && dryRunEnabled) {
+          if ((call.name === 'write_file' || call.name === 'replace_in_file') && dryRunEnabled) {
             const approved = await new Promise<boolean>((resolve) => {
               setPendingWrite({ call, resolve });
             });
@@ -214,7 +239,7 @@ export function ChatPanel({
               toolResponses.push({
                 functionResponse: {
                   name: call.name,
-                  response: { error: 'Write request rejected by user (Dry Run active)' }
+                  response: { error: 'Operation rejected by user (Dry Run active)' }
                 }
               });
               continue;
@@ -390,9 +415,16 @@ export function ChatPanel({
                  <h4 className="font-bold uppercase text-[10px] tracking-widest">Dry Run Interception</h4>
                </div>
                <div className="space-y-1">
-                 <p className="text-xs font-mono">Request: Create/Update <span className="text-mimo-accent">"{pendingWrite.call.args.path}"</span></p>
+                 <p className="text-xs font-mono">Request: {pendingWrite.call.name.toUpperCase()} <span className="text-mimo-accent">"{pendingWrite.call.args.path}"</span></p>
                  <div className="bg-black/50 p-3 rounded font-mono text-[10px] max-h-40 overflow-y-auto">
-                   {pendingWrite.call.args.content}
+                   {pendingWrite.call.name === 'write_file' ? (
+                     <pre className="whitespace-pre-wrap">{pendingWrite.call.args.content}</pre>
+                   ) : (
+                     <div className="space-y-2">
+                       <div className="text-red-400 border-l border-red-400/50 pl-2 opacity-60">-{pendingWrite.call.args.find}</div>
+                       <div className="text-green-400 border-l border-green-400/50 pl-2">+{pendingWrite.call.args.replace}</div>
+                     </div>
+                   )}
                  </div>
                </div>
                <div className="flex gap-4">

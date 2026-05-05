@@ -8,6 +8,7 @@ export interface Project {
 export interface FileEntry {
   path: string;
   size: number;
+  gitStatus?: 'staged' | 'modified' | 'untracked' | 'deleted';
 }
 
 export interface Message {
@@ -21,6 +22,7 @@ export interface TreeNode {
   path: string;
   size?: number;
   children?: Record<string, TreeNode>;
+  gitStatus?: 'staged' | 'modified' | 'untracked' | 'deleted';
 }
 
 export type DebugEventType = 

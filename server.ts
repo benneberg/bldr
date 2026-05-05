@@ -321,15 +321,39 @@ app.get('/api/projects', (req, res) => {
 });
 
 // Create project
-app.post('/api/projects', (req, res) => {
+app.post('/api/projects', async (req, res) => {
   const { name } = req.body;
   const id = uuidv4();
   db.prepare('INSERT INTO projects (id, name) VALUES (?, ?)').run(id, name);
   const projectDir = path.join(WORKSPACE_ROOT, id);
   if (!existsSync(projectDir)) {
-    fs.mkdir(projectDir, { recursive: true });
+    await fs.mkdir(projectDir, { recursive: true });
   }
+  
+  // Initialize with a basic WORKSPACE.md if empty
+  await generateProjectContext(id);
+
+  // git init
+  try {
+    await execAsync('git init', { cwd: projectDir });
+  } catch (e) {}
+  
   res.json({ id, name });
+});
+
+// Chat Persistence
+app.get('/api/projects/:projectId/chat', (req, res) => {
+  const { projectId } = req.params;
+  const row = db.prepare('SELECT messages FROM conversations WHERE project_id = ?').get(projectId) as any;
+  res.json(row ? JSON.parse(row.messages) : []);
+});
+
+app.post('/api/projects/:projectId/chat', (req, res) => {
+  const { projectId } = req.params;
+  const { messages } = req.body;
+  db.prepare('INSERT OR REPLACE INTO conversations (project_id, messages) VALUES (?, ?)')
+    .run(projectId, JSON.stringify(messages));
+  res.json({ success: true });
 });
 
 // List repositories for a project
@@ -337,6 +361,66 @@ app.get('/api/projects/:projectId/repositories', (req, res) => {
   const { projectId } = req.params;
   const repos = db.prepare('SELECT * FROM repositories WHERE project_id = ?').all(projectId);
   res.json(repos);
+});
+
+// ... (GitHub and ZIP imports) ...
+
+// New Tools: search_files and replace_in_file
+app.post('/api/tools/search_files', async (req, res) => {
+  const { projectId, query } = req.body;
+  try {
+    const projectDir = path.join(WORKSPACE_ROOT, projectId);
+    const { stdout } = await execAsync(`grep -rInI "${query.replace(/"/g, '\\"')}" .`, { cwd: projectDir });
+    const lines = stdout.split('\n').filter(l => l.trim());
+    const results = lines.map(line => {
+      const [path, lineNo, ...rest] = line.split(':');
+      return { path, line: parseInt(lineNo), content: rest.join(':').trim() };
+    });
+    res.json({ results });
+  } catch (err: any) {
+    if (err.code === 1) return res.json({ results: [] });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/tools/replace_in_file', async (req, res) => {
+  const { projectId, path: filePath, find, replace, dry_run } = req.body;
+  try {
+    const fullPath = sanitizePath(projectId, filePath);
+    const content = await fs.readFile(fullPath, 'utf-8');
+    
+    if (!content.includes(find)) {
+      return res.status(400).json({ error: 'Target content not found in file' });
+    }
+
+    const newContent = content.replace(new RegExp(find.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), replace);
+    
+    if (dry_run) {
+      return res.json({ 
+        success: true, 
+        message: 'Dry run complete. No changes made.',
+        diff: { path: filePath, find, replace }
+      });
+    }
+
+    await fs.writeFile(fullPath, newContent);
+    db.prepare('INSERT OR REPLACE INTO files (project_id, path, size) VALUES (?, ?, ?)')
+      .run(projectId, filePath, newContent.length);
+
+    emitDebugEvent(io, {
+      projectId,
+      sessionId: req.body.sessionId || 'ai-session',
+      type: 'ai:action',
+      gitRef: { branch: 'main', commit: 'head' },
+      cccTier: 1,
+      replayable: true,
+      payload: { action: 'replace_in_file', path: filePath }
+    });
+
+    res.json({ success: true, message: 'Replacement successful' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // GitHub Import (Advanced: Workshop Support)
@@ -410,6 +494,42 @@ app.post('/api/import/github', async (req, res) => {
   }
 });
 
+app.post('/api/projects/:projectId/upload', upload.array('files'), async (req, res) => {
+  const { projectId } = req.params;
+  const { path: uploadPath } = req.body; // Optional subdirectory
+  const files = req.files as Express.Multer.File[];
+  
+  if (!files || files.length === 0) {
+    return res.status(400).json({ error: 'No files uploaded' });
+  }
+
+  const projectDir = path.join(WORKSPACE_ROOT, projectId);
+  
+  try {
+    for (const file of files) {
+      const targetRelPath = path.join(uploadPath || '', file.originalname);
+      const fullPath = sanitizePath(projectId, targetRelPath);
+      const dir = path.dirname(fullPath);
+      
+      if (!existsSync(dir)) await fs.mkdir(dir, { recursive: true });
+      
+      const content = await fs.readFile(file.path);
+      await fs.writeFile(fullPath, content);
+      
+      const stats = await fs.stat(fullPath);
+      db.prepare('INSERT OR REPLACE INTO files (project_id, path, size) VALUES (?, ?, ?)')
+        .run(projectId, targetRelPath, stats.size);
+      
+      await fs.unlink(file.path);
+    }
+    
+    await generateProjectContext(projectId);
+    res.json({ success: true, count: files.length });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/import/zip', upload.single('file'), async (req, res) => {
   const { name } = req.body;
   const id = uuidv4();
@@ -435,13 +555,23 @@ app.post('/api/import/zip', upload.single('file'), async (req, res) => {
     const zipEntries = zip.getEntries();
     const ignoreList = ['node_modules/', 'dist/', 'build/', '.git/', 'coverage/', '.next/', '__MACOSX'];
     
+    // Detect root folder
+    let commonRoot = '';
+    const topLevelEntries = zipEntries.filter(e => !e.entryName.includes('/') || (e.isDirectory && e.entryName.split('/').length === 2 && e.entryName.endsWith('/')));
+    if (topLevelEntries.length === 1 && topLevelEntries[0].isDirectory) {
+      commonRoot = topLevelEntries[0].entryName;
+    }
+
     for (const entry of zipEntries) {
       if (entry.isDirectory) continue;
       if (ignoreList.some(ignore => entry.entryName.includes(ignore))) continue;
       
-      const entryName = entry.entryName;
-      // Some zips have a root folder, some don't. 
-      // Simplified: just write the file as is if it doesn't look like a root folder we should skip
+      let entryName = entry.entryName;
+      if (commonRoot && entryName.startsWith(commonRoot)) {
+        entryName = entryName.slice(commonRoot.length);
+      }
+      if (!entryName) continue;
+
       const filePath = path.join(projectDir, entryName);
       const dirPath = path.dirname(filePath);
       
@@ -684,6 +814,10 @@ app.post('/api/tools/analyze_dependencies', async (req, res) => {
             }
           } else {
             // External dependency
+            if (!nodeMap.has(target)) {
+              nodes.push({ id: target, group: 'external' });
+              nodeMap.set(target, true);
+            }
             links.push({ source: f.path, target: target, type: 'external' });
           }
         }
@@ -720,6 +854,97 @@ app.post('/api/tools/list_files', async (req, res) => {
   try {
     const files = db.prepare('SELECT path FROM files WHERE project_id = ?').all(projectId);
     res.json({ files: files.map((f: any) => f.path) });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Git Integration
+app.post('/api/git/init', async (req, res) => {
+  const { projectId } = req.body;
+  try {
+    const projectDir = path.join(WORKSPACE_ROOT, projectId);
+    await execAsync('git init', { cwd: projectDir });
+    res.json({ success: true, message: 'Git initialized' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/git/status', async (req, res) => {
+  const { projectId } = req.body;
+  try {
+    const projectDir = path.join(WORKSPACE_ROOT, projectId);
+    // --porcelain=v1 gives a stable, parser-friendly output
+    const { stdout } = await execAsync('git status --porcelain=v1', { cwd: projectDir });
+    
+    // Parse status lines: "XY PATH"
+    const files = stdout.split('\n').filter(l => l.trim()).map(line => {
+      const x = line[0]; // Index status
+      const y = line[1]; // Work tree status
+      const path = line.slice(3);
+      
+      let status: 'staged' | 'modified' | 'untracked' | 'deleted' = 'untracked';
+      if (x === '?' && y === '?') status = 'untracked';
+      else if (x !== ' ' && y === ' ') status = 'staged';
+      else if (x === ' ' && y === 'M') status = 'modified';
+      else if (x === 'M' && y === 'M') status = 'modified'; // partially staged
+      else if (x === 'D' || y === 'D') status = 'deleted';
+      else if (x !== ' ' && y !== ' ') status = 'staged'; // also staged/modified
+
+      return { path, status, x, y };
+    });
+
+    res.json({ files });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/git/gitignore/:projectId', async (req, res) => {
+  const { projectId } = req.params;
+  const filePath = path.join(WORKSPACE_ROOT, projectId, '.gitignore');
+  try {
+    if (existsSync(filePath)) {
+      const content = await fs.readFile(filePath, 'utf-8');
+      res.json({ content });
+    } else {
+      res.json({ content: '' });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/git/gitignore', async (req, res) => {
+  const { projectId, content } = req.body;
+  const filePath = path.join(WORKSPACE_ROOT, projectId, '.gitignore');
+  try {
+    await fs.writeFile(filePath, content);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/git/commit', async (req, res) => {
+  const { projectId, message } = req.body;
+  try {
+    const projectDir = path.join(WORKSPACE_ROOT, projectId);
+    await execAsync('git add .', { cwd: projectDir });
+    const { stdout } = await execAsync(`git commit -m "${message.replace(/"/g, '\\"')}"`, { cwd: projectDir });
+    res.json({ success: true, output: stdout });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/git/push', async (req, res) => {
+  const { projectId, remote, branch } = req.body;
+  try {
+    const projectDir = path.join(WORKSPACE_ROOT, projectId);
+    const { stdout } = await execAsync(`git push ${remote || 'origin'} ${branch || 'main'}`, { cwd: projectDir });
+    res.json({ success: true, output: stdout });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
