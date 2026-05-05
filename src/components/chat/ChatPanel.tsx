@@ -27,88 +27,6 @@ import { Provider, ModelTier, PROVIDERS, MODELS, DEFAULT_PROVIDER, DEFAULT_TIER 
 
 const ai = new GoogleGenAI({ apiKey: (process as any).env.GEMINI_API_KEY || '' });
 
-const BLDR_TOOLS: any[] = [{
-  functionDeclarations: [
-    {
-      name: 'read_file',
-      description: 'Read the content of a file',
-      parameters: {
-        type: Type.OBJECT,
-        properties: { path: { type: Type.STRING, description: 'Path to file relative to workspace root' } },
-        required: ['path']
-      }
-    },
-    {
-      name: 'write_file',
-      description: 'Write or update a file. ALWAYS include the FULL content.',
-      parameters: {
-        type: Type.OBJECT,
-        properties: {
-          path: { type: Type.STRING, description: 'Path to file' },
-          content: { type: Type.STRING, description: 'Full file content' }
-        },
-        required: ['path', 'content']
-      }
-    },
-    {
-      name: 'list_files',
-      description: 'List all files',
-      parameters: {
-        type: Type.OBJECT,
-        properties: { repositoryId: { type: Type.STRING, description: 'Optional ID' } }
-      }
-    },
-    {
-      name: 'search_files',
-      description: 'Grep search across codebase',
-      parameters: {
-        type: Type.OBJECT,
-        properties: { query: { type: Type.STRING, description: 'Text to search' } },
-        required: ['query']
-      }
-    },
-    {
-      name: 'replace_in_file',
-      description: 'Precise search and replace.',
-      parameters: {
-        type: Type.OBJECT,
-        properties: {
-          path: { type: Type.STRING, description: 'File path' },
-          find: { type: Type.STRING, description: 'Exact string to find' },
-          replace: { type: Type.STRING, description: 'Replacement' }
-        },
-        required: ['path', 'find', 'replace']
-      }
-    },
-    {
-      name: 'analyze_dependencies',
-      description: 'Analyze imports',
-      parameters: { type: Type.OBJECT, properties: {} }
-    },
-    {
-      name: 'generate_pr',
-      description: 'Summarize work session.',
-      parameters: {
-        type: Type.OBJECT,
-        properties: {
-          summary: { type: Type.STRING },
-          changes: { type: Type.ARRAY, items: { type: Type.STRING } }
-        },
-        required: ['summary', 'changes']
-      }
-    },
-    {
-      name: 'run_shell',
-      description: 'Run shell command',
-      parameters: {
-        type: Type.OBJECT,
-        properties: { command: { type: Type.STRING } },
-        required: ['command']
-      }
-    }
-  ]
-}];
-
 const BLDR_SYSTEM_PROMPT = `You are "bldr", an elite AI IDE assistant specializing in multi-repo architectures.
 - Be succinct. Direct action > explanation.
 - Use replace_in_file for localized edits (saves tokens).
@@ -418,6 +336,11 @@ export function ChatPanel({
           {
             name: 'analyze_dependencies',
             description: 'Analyze imports and dependencies between different files and external packages',
+            parameters: { type: Type.OBJECT, properties: {} }
+          },
+          {
+            name: 'get_ccc_status',
+            description: 'Check if CCC (Context Compiler) is active and get its current status for the project',
             parameters: { type: Type.OBJECT, properties: {} }
           },
           {

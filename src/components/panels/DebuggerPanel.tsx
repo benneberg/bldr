@@ -61,8 +61,22 @@ export function DebuggerPanel({ projectId, socket }: DebuggerPanelProps) {
           <History className="w-4 h-4 text-mimo-accent" />
           <h2 className="font-serif italic text-lg uppercase tracking-tight">Causal History</h2>
         </div>
-        <div className="text-[10px] font-mono text-mimo-text-muted uppercase">
-          {events.length} Events Logged
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={async () => {
+              const res = await fetch('/api/debug/db');
+              const data = await res.json();
+              console.log('Database Debug:', data);
+              alert('DB info printed to console');
+            }}
+            className="p-1.5 hover:bg-white/5 rounded-lg text-mimo-text-muted transition-all"
+            title="Debug DB"
+          >
+            <Database className="w-4 h-4" />
+          </button>
+          <div className="text-[10px] font-mono text-mimo-text-muted uppercase">
+            {events.length} Events Logged
+          </div>
         </div>
       </div>
 

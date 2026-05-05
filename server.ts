@@ -661,8 +661,17 @@ app.post('/api/import/github', async (req, res) => {
     }
     console.log(`Extracted and created ${filesCreated} files in database and filesystem`);
 
-    await ccc.run(id);
+    const cccResult = await ccc.run(id);
     await generateProjectContext(id);
+
+    emitDebugEvent(io, {
+      projectId: id,
+      type: 'git:import',
+      gitRef: { branch: 'main', commit: 'head' },
+      payload: { url, name, filesCreated, ccc: cccResult }
+    });
+
+    io.to(id).emit('fs_event', { type: 'import', projectId: id });
 
     res.json({ id, repoId });
   } catch (error: any) {
@@ -700,8 +709,18 @@ app.post('/api/projects/:projectId/upload', upload.array('files'), async (req, r
       await fs.unlink(file.path);
     }
     
-    await ccc.run(projectId);
+    const cccResult = await ccc.run(projectId);
     await generateProjectContext(projectId);
+
+    emitDebugEvent(io, {
+      projectId,
+      type: 'fs:change',
+      gitRef: { branch: 'main', commit: 'head' },
+      payload: { event: 'upload', count: files.length, ccc: cccResult }
+    });
+
+    io.to(projectId).emit('fs_event', { type: 'upload', projectId });
+
     res.json({ success: true, count: files.length });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -900,14 +919,21 @@ app.post('/api/tools/write_file', async (req, res) => {
       .run(projectId, filePath, content.length);
     console.log(`[write_file] Database updated`);
 
-    await ccc.run(projectId);
-    
+    const cccResult = await ccc.run(projectId);
+    await generateProjectContext(projectId);
+
     emitDebugEvent(io, {
       projectId,
       sessionId: req.body.sessionId || 'ai-session',
-      type: 'ai:action',
+      type: 'fs:change',
       gitRef: { branch: 'main', commit: 'head' },
       cccTier: 1,
+      payload: { event: 'write_file', path: filePath, ccc: cccResult }
+    });
+
+    io.to(projectId).emit('fs_event', { type: 'write', path: filePath, projectId });
+
+    res.json({ success: true });
       replayable: true,
       payload: { action: 'write_file', path: filePath }
     });
@@ -1022,6 +1048,21 @@ app.post('/api/tools/analyze_dependencies', async (req, res) => {
     res.json({ nodes, links });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/tools/get_ccc_status', async (req, res) => {
+  const { projectId } = req.body;
+  try {
+    const cccResult = await ccc.run(projectId);
+    const cccCheck = await execAsync('ccc --version').catch(e => ({ stderr: e.message }));
+    res.json({ 
+      active: !('stderr' in cccCheck), 
+      version: !('stderr' in cccCheck) ? (cccCheck as any).stdout?.trim() : 'N/A',
+      lastRun: cccResult 
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
   }
 });
 

@@ -146,9 +146,21 @@ export function FilesPanel({
 
   useEffect(() => {
     const fetchFiles = async () => {
-      const res = await fetch(`/api/files/${projectId}`);
-      const data = await res.json();
-      setFiles(data);
+      console.log(`[FilesPanel] Fetching files for ${projectId}...`);
+      try {
+        const res = await fetch(`/api/files/${projectId}`);
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          console.log(`[FilesPanel] Received ${data.length} files`);
+          setFiles(data);
+        } else {
+          console.error('[FilesPanel] Unexpected data format:', data);
+          setFiles([]);
+        }
+      } catch (e) {
+        console.error('[FilesPanel] Fetch failed:', e);
+        setFiles([]);
+      }
     };
     
     fetchFiles();
