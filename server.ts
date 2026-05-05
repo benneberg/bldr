@@ -83,12 +83,14 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS files (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id TEXT,
+    repository_id TEXT,
     path TEXT,
     size INTEGER,
     hash TEXT,
     modified_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(project_id, path),
-    FOREIGN KEY(project_id) REFERENCES projects(id)
+    FOREIGN KEY(project_id) REFERENCES projects(id),
+    FOREIGN KEY(repository_id) REFERENCES repositories(id)
   );
 
   CREATE TABLE IF NOT EXISTS conversations (
@@ -358,8 +360,8 @@ app.get('/api/debug/db', (req, res) => {
   try {
     const projects = db.prepare('SELECT * FROM projects').all();
     const repos = db.prepare('SELECT * FROM repositories').all();
-    const files = db.prepare('SELECT COUNT(*) as count FROM files').get();
-    res.json({ projects, repos, filesCount: files });
+    const filesByProject = db.prepare('SELECT project_id, COUNT(*) as count FROM files GROUP BY project_id').all();
+    res.json({ projects, repos, filesByProject });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
@@ -778,13 +780,20 @@ app.post('/api/import/zip', upload.single('file'), async (req, res) => {
 // Get files tree with repo info
 app.get('/api/files/:projectId', async (req, res) => {
   const { projectId } = req.params;
-  const files = db.prepare(`
-    SELECT f.path, f.size, r.name as repo_name, r.id as repo_id 
-    FROM files f 
-    LEFT JOIN repositories r ON f.repository_id = r.id 
-    WHERE f.project_id = ?
-  `).all(projectId);
-  res.json(files);
+  console.log(`[GET /api/files/${projectId}] Fetching file list...`);
+  try {
+    const files = db.prepare(`
+      SELECT f.path, f.size, f.repository_id, r.name as repo_name, r.id as repo_id 
+      FROM files f 
+      LEFT JOIN repositories r ON f.repository_id = r.id 
+      WHERE f.project_id = ?
+    `).all(projectId);
+    console.log(`[GET /api/files/${projectId}] Found ${files.length} files`);
+    res.json(files);
+  } catch (err: any) {
+    console.error(`[GET /api/files/${projectId}] Error:`, err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Get file content

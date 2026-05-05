@@ -443,15 +443,6 @@ export function ChatPanel({
               },
               required: ['summary', 'changes']
             }
-          },
-          {
-            name: 'run_shell',
-            description: 'Run a shell command in the workspace root',
-            parameters: {
-              type: Type.OBJECT,
-              properties: { command: { type: Type.STRING, description: 'Shell command' } },
-              required: ['command']
-            }
           }
         ]
       }];
