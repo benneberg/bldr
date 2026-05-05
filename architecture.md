@@ -16,7 +16,10 @@ Express Server
         ↕
       Filesystem
         ↕
-      Gemini API (3 Flash Preview)
+      AI Proxy (Centralized model routing)
+        ├─ Gemini API (3 Flash Preview)
+        ├─ MiMo API (v2.5 Pro)
+        └─ OpenAI API (GPT-4o)
 ```
 
 ## 🛠️ Key Decisions (ADRs)

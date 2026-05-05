@@ -7,10 +7,12 @@ bldr is not just another editor; it is a **deterministic execution engine** for 
 ### Current State
 * **Sync Engine Established:** Chokidar-based FS watcher prevents drift between the filesystem and the IDE database.
 * **Causal History Debugger (CHD):** Real-time monitoring of AI actions and runtime errors, enabling "time-travel" debugging on mobile.
-* **Architecture-First UI:** Navigation is centered around Chat and CHD rather than a file tree.
+* **Architecture-First UI:** Navigation is centered around Chat and CHD rather than a file tree, now fully responsive for mobile productivity.
+* **Intelligent Routing Layer:** A specialized AI Proxy that handles multi-provider fallbacks and provides granular execution metadata.
 
 ### Recent Breakthroughs
 * **Tiered Context Updates:** The system now intelligently regenerates only the parts of the context (CCC) affected by local changes.
+* **Unified Intelligence Mesh:** Seamless hot-swapping between world-class models (Gemini, MiMo, OpenAI) within a single chat session.
 * **Deterministic Debugging:** The IDE can now trace runtime failures back to the specific AI instruction or file change that caused them.
 
 ## 🚀 Future Goals

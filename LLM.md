@@ -7,8 +7,9 @@ bldr is an **execution layer for developer intent**—AI writes, human decides.
 ## 🛠️ Stack & Principles
 * **Backend:** Node.js (Vite + Express), SQLite, Socket.io, Chokidar (FS Sync)
 * **Frontend:** React, Tailwind CSS, Lucide React, Framer Motion
-* **Intelligence:** Gemini 3 Flash Preview (Experimental), Vertex AI Embeddings
+* **Intelligence:** Multi-provider mesh (Gemini 3 Flash, MiMo v2.5, OpenAI GPT-4o)
 * **Execution:** AI as a system component, not a feature.
+* **Observability:** Every instruction is tracked with model attribution, token usage, and latency.
 
 ## 📜 Coding Rules
 1. **Intelligence > Interface:** Prioritize functionality that enhances the AI's ability to reason over UI fluff.

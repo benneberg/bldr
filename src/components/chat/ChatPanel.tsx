@@ -27,7 +27,12 @@ import { Provider, ModelTier, PROVIDERS, MODELS, DEFAULT_PROVIDER, DEFAULT_TIER 
 
 const ai = new GoogleGenAI({ apiKey: (process as any).env.GEMINI_API_KEY || '' });
 
-function ChatMessageItem({ m }: { m: Message }) {
+interface ChatMessageItemProps {
+  m: Message;
+  key?: React.Key;
+}
+
+function ChatMessageItem({ m }: ChatMessageItemProps) {
   const [showMeta, setShowMeta] = useState(false);
 
   return (

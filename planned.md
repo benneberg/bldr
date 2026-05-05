@@ -18,7 +18,10 @@
 - [ ] Git-backed sessions (replacing snapshots)
 - [ ] Semantic search (`sqlite-vss` + embeddings)
 
-## 🏗 Phase 7 — Mobile UX (Active)
+## ✅ Phase 7 — Mobile UX & Intelligence (Active)
+- [x] Multi-provider AI support (Gemini, MiMo, OpenAI)
+- [x] Real-time AI performance metrics & metadata
+- [x] Responsive UI for mobile portrait orientation
 - [ ] Voice input integration
 - [ ] Block-based approvals UI refinement
 - [ ] Intent-based branching (sandbox mode)

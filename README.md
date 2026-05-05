@@ -7,8 +7,10 @@
 - **Causal History Debugger (CHD)**: Real-Time event bus that correlates AI actions, Git commits, and runtime errors to provide instant root-cause analysis.
 - **Sync Engine (Phase 6)**: Real-time filesystem synchronization with `chokidar` ensures zero drift between the AI's internal model and the codebase.
 - **Multi-Repository Workspaces**: Unified management of complex service architectures in a single "pocket" interface.
+- **Multi-Provider AI Intelligence**: Seamlessly switch between Gemini, MiMo, and OpenAI models with dedicated Smart, Fast, and Cheap tiers.
+- **Deep Performance Metrics**: Real-time tracking of AI latency, token usage, and model attribution for every instruction.
 - **CCC Protocol (Memory Layer)**: Automated, tiered generation of `WORKSPACE.md`, `LLM.md`, and `CONTEXT.md` artifacts for perfect AI comprehension.
-- **Instruction-First UI**: A mobile-optimized interface where Chat is the IDE and the editor is a secondary tool for inspection.
+- **Instruction-First UI**: A mobile-responsive interface where Chat is the IDE and the editor is a secondary tool for inspection, optimized for portrait and landscape modes.
 - **Git-Backed Sessions**: AI changes use transient branches for deterministic undo/redo logic.
 - **Dry Run Protection**: AI-proposed changes are presented as block-based PR summaries for touch-friendly user approval.
 - **Sandbox Terminal**: Integrated shell execution for running builds, lints, and services in real-time.
@@ -18,7 +20,7 @@
 
 - **Frontend**: React + Vite + Tailwind CSS + Framer Motion
 - **Backend**: Node.js + Express + SQLite (better-sqlite3)
-- **AI**: Gemini 2.0/3.0 Flash with advanced Function Calling (Tool Use)
+- **AI**: Multi-provider support (Gemini 3 Flash, MiMo v2.5, GPT-4o) with custom proxy layer
 - **Context**: Code Context Compiler (CCC) methodology
 
 ## 📂 Workspace Structure

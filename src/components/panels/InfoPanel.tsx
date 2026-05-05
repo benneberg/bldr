@@ -1,5 +1,5 @@
 import React from 'react';
-import { HelpCircle, Terminal as TerminalIcon, FileText, Code, Check, Zap, X } from 'lucide-react';
+import { HelpCircle, Terminal as TerminalIcon, FileText, Code, Check, Zap, X, Activity } from 'lucide-react';
 
 export function InfoPanel({ onClose }: { onClose: () => void }) {
   return (
@@ -24,7 +24,16 @@ export function InfoPanel({ onClose }: { onClose: () => void }) {
               </div>
               <div className="space-y-1">
                 <h4 className="text-xs font-bold">DETERMINISTIC COLLABORATION</h4>
-                <p className="text-[10px] text-mimo-text-muted leading-relaxed">Every keystroke is synchronized across all active users in the same workspace. Real-time presence indicators show who is auditing which file.</p>
+                <p className="text-[10px] text-mimo-text-muted leading-relaxed">Every keystroke is synchronized across all active users. Real-time presence indicators show active auditors.</p>
+              </div>
+            </div>
+            <div className="flex gap-4">
+              <div className="w-8 h-8 rounded bg-purple-500/10 border border-purple-500/20 flex items-center justify-center shrink-0">
+                <Activity className="w-4 h-4 text-purple-400" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="text-xs font-bold">INTELLIGENT ROUTING</h4>
+                <p className="text-[10px] text-mimo-text-muted leading-relaxed">Swap between Gemini, MiMo, and OpenAI mid-session. Observe real-time latency and token analytics via the metadata toggles.</p>
               </div>
             </div>
             <div className="flex gap-4">
@@ -33,7 +42,7 @@ export function InfoPanel({ onClose }: { onClose: () => void }) {
               </div>
               <div className="space-y-1">
                 <h4 className="text-xs font-bold">KNOWLEDGE LAYERING (CCC)</h4>
-                <p className="text-[10px] text-mimo-text-muted leading-relaxed">The AI assistant reads <span className="text-mimo-accent">WORKSPACE.md</span>, <span className="text-mimo-accent">LLM.md</span>, and <span className="text-mimo-accent">PKML.md</span> as its base "truth" layer for all generations.</p>
+                <p className="text-[10px] text-mimo-text-muted leading-relaxed">The AI reads <span className="text-mimo-accent">WORKSPACE.md</span>, <span className="text-mimo-accent">LLM.md</span>, and <span className="text-mimo-accent">PKML.md</span> for perfect architectural alignment.</p>
               </div>
             </div>
           </div>
