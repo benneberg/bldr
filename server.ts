@@ -935,8 +935,7 @@ app.post('/api/tools/write_file', async (req, res) => {
 
     res.json({ success: true });
       replayable: true,
-      payload: { action: 'write_file', path: filePath }
-    });
+      payload: { action: 'write_file', path: filePath }});
 
     res.json({ success: true });
   } catch (err: any) {
