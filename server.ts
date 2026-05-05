@@ -30,15 +30,34 @@ const __dirname = path.dirname(__filename);
 const PORT = process.env.PORT || 3000;
 const DB_PATH = path.join(__dirname, 'mimo.db');
 const WORKSPACE_ROOT = path.join(__dirname, 'workspace');
+const UPLOADS_ROOT = path.join(__dirname, 'uploads');
 const ccc = new CCCService(WORKSPACE_ROOT);
 
-// Ensure workspace exists
-if (!existsSync(WORKSPACE_ROOT)) {
-  await fs.mkdir(WORKSPACE_ROOT, { recursive: true });
-}
+// Ensure directories exist
+const ensureDir = async (dir: string) => {
+  if (!existsSync(dir)) {
+    console.log(`Creating directory: ${dir}`);
+    await fs.mkdir(dir, { recursive: true });
+  } else {
+    console.log(`Directory exists: ${dir}`);
+  }
+};
+
+await ensureDir(WORKSPACE_ROOT);
+await ensureDir(UPLOADS_ROOT);
 
 // Database Setup
-const db = new Database(DB_PATH);
+console.log(`Initializing database at ${DB_PATH}`);
+const db = new Database(DB_PATH, { verbose: console.log });
+
+// Log current state
+try {
+  const projectCount = db.prepare('SELECT COUNT(*) as count FROM projects').get() as any;
+  const fileCount = db.prepare('SELECT COUNT(*) as count FROM files').get() as any;
+  console.log(`Startup DB Check: Projects: ${projectCount?.count || 0}, Files: ${fileCount?.count || 0}`);
+} catch (e) {
+  console.log('Database tables not yet initialized.');
+}
 
 // Initial basic tables
 db.exec(`
@@ -119,7 +138,13 @@ const app = express();
 app.use(compression());
 app.use(express.json());
 
-const upload = multer({ dest: 'uploads/' });
+// Logger middleware
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  next();
+});
+
+const upload = multer({ dest: UPLOADS_ROOT });
 
 // --- Helper Functions ---
 
@@ -282,16 +307,18 @@ async function generateProjectContext(projectId: string) {
     repoCtx += `Type: ${repo.type}\nTags: ${repo.tags}\n\n`;
     
     const repoFiles = files.filter(f => f.repository_id === repo.id);
-    const keyExtensions = ['.ts', '.tsx', '.js', '.jsx', '.html', '.css', '.json', '.md'];
+    const criticalFiles = ['package.json', 'README.md', 'src/App.tsx', 'src/main.tsx', 'index.ts', 'server.ts'];
     
-    repoCtx += `## Key Files Summary\n\n`;
+    repoCtx += `## Architecture Overview\n\n`;
     for (const file of repoFiles) {
       const ext = path.extname(file.path);
-      if (file.size < 5000 && keyExtensions.includes(ext)) {
+      const fileName = path.basename(file.path);
+      if (criticalFiles.includes(file.path) || criticalFiles.includes(fileName)) {
         try {
           const fullPath = path.join(projectDir, file.path);
           const content = await fs.readFile(fullPath, 'utf-8');
-          repoCtx += `### ${file.path}\n\n\`\`\`${ext.slice(1)}\n${content}\n\`\`\`\n\n`;
+          const truncated = content.length > 2000 ? content.slice(0, 2000) + '\n... [TRUNCATED]' : content;
+          repoCtx += `### ${file.path}\n\n\`\`\`${ext.slice(1) || 'text'}\n${truncated}\n\`\`\`\n\n`;
         } catch (e) {}
       }
     }
@@ -325,6 +352,46 @@ function sanitizePath(projectId: string, userPath: string) {
 app.get('/api/projects', (req, res) => {
   const projects = db.prepare('SELECT * FROM projects ORDER BY created_at DESC').all();
   res.json(projects);
+});
+
+app.get('/api/debug/db', (req, res) => {
+  try {
+    const projects = db.prepare('SELECT * FROM projects').all();
+    const repos = db.prepare('SELECT * FROM repositories').all();
+    const files = db.prepare('SELECT COUNT(*) as count FROM files').get();
+    res.json({ projects, repos, filesCount: files });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/proxy/:projectId/*', async (req, res) => {
+  const { projectId } = req.params;
+  const filePath = req.params[0] || 'index.html';
+  
+  try {
+    const fullPath = sanitizePath(projectId, filePath);
+    if (!existsSync(fullPath)) {
+      return res.status(404).send('Not Found');
+    }
+    
+    const ext = path.extname(fullPath);
+    const mimeTypes: Record<string, string> = {
+      '.html': 'text/html',
+      '.js': 'application/javascript',
+      '.css': 'text/css',
+      '.json': 'application/json',
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.gif': 'image/gif',
+      '.svg': 'image/svg+xml'
+    };
+    
+    res.setHeader('Content-Type', mimeTypes[ext] || 'text/plain');
+    res.sendFile(fullPath);
+  } catch (e: any) {
+    res.status(403).send(e.message);
+  }
 });
 
 // Health check
@@ -522,12 +589,16 @@ app.post('/api/import/github', async (req, res) => {
       zipUrl = `${url.replace(/\/$/, '')}/archive/refs/heads/main.zip`;
     }
 
+    console.log(`Downloading ZIP from ${zipUrl}`);
     const response = await axios.get(zipUrl, { responseType: 'arraybuffer' });
+    console.log(`Downloaded ${response.data.byteLength} bytes`);
     const zip = new AdmZip(Buffer.from(response.data));
     const projectDir = path.join(WORKSPACE_ROOT, id);
+    console.log(`Target project directory: ${projectDir}`);
     
     // If it's a new project, create entry
     if (!existingProjectId) {
+      console.log(`Creating new project entry: ${id}`);
       db.prepare('INSERT INTO projects (id, name) VALUES (?, ?)').run(id, name || 'New Workspace');
       await fs.mkdir(projectDir, { recursive: true });
     }
@@ -547,30 +618,46 @@ app.post('/api/import/github', async (req, res) => {
       .run(repoId, id, repoSlug, url, pathPrefix, type || 'unknown', tags || '');
 
     const zipEntries = zip.getEntries();
+    console.log(`ZIP has ${zipEntries.length} entries`);
     const ignoreList = ['node_modules/', 'dist/', 'build/', '.git/', 'coverage/', '.next/'];
     
+    let filesCreated = 0;
+    // Check if the ZIP has a common top-level directory (GitHub style)
+    const topLevelDirs = new Set(zipEntries.map(e => e.entryName.split('/')[0]));
+    const hasTopLevelDir = topLevelDirs.size === 1 && zipEntries.every(e => e.entryName.startsWith(Array.from(topLevelDirs)[0] + '/'));
+    console.log(`Detected ZIP structure: ${hasTopLevelDir ? 'Has top-level directory' : 'Flat or multiple roots'}`);
+
     for (const entry of zipEntries) {
       if (entry.isDirectory) continue;
       if (ignoreList.some(ignore => entry.entryName.includes(ignore))) continue;
       
-      const parts = entry.entryName.split('/');
-      const fileNameInsideRepo = parts.slice(1).join('/');
+      const fileNameInsideRepo = hasTopLevelDir 
+        ? entry.entryName.split('/').slice(1).join('/')
+        : entry.entryName;
+        
       if (!fileNameInsideRepo) continue;
 
       const fullRelativePath = path.join(pathPrefix, fileNameInsideRepo);
       const filePath = path.join(projectDir, fullRelativePath);
       const dirPath = path.dirname(filePath);
       
-      if (!existsSync(dirPath)) {
-        await fs.mkdir(dirPath, { recursive: true });
+      try {
+        if (!existsSync(dirPath)) {
+          await fs.mkdir(dirPath, { recursive: true });
+        }
+
+        const content = entry.getData();
+        await fs.writeFile(filePath, content);
+
+        db.prepare('INSERT OR REPLACE INTO files (project_id, repository_id, path, size) VALUES (?, ?, ? , ?)')
+          .run(id, repoId, fullRelativePath, content.length);
+        
+        filesCreated++;
+      } catch (err: any) {
+        console.error(`Failed to create file ${fullRelativePath}:`, err.message);
       }
-
-      const content = entry.getData();
-      await fs.writeFile(filePath, content);
-
-      db.prepare('INSERT OR REPLACE INTO files (project_id, repository_id, path, size) VALUES (?, ?, ?, ?)')
-        .run(id, repoId, fullRelativePath, content.length);
     }
+    console.log(`Extracted and created ${filesCreated} files in database and filesystem`);
 
     await ccc.run(id);
     await generateProjectContext(id);
@@ -789,13 +876,20 @@ app.post('/api/tools/read_file', async (req, res) => {
 
 app.post('/api/tools/write_file', async (req, res) => {
   const { projectId, path: filePath, content } = req.body;
+  console.log(`[write_file] Project: ${projectId}, Path: ${filePath}, Content length: ${content?.length || 0}`);
   try {
     const fullPath = sanitizePath(projectId, filePath);
+    console.log(`[write_file] Resolved path: ${fullPath}`);
     const dir = path.dirname(fullPath);
-    if (!existsSync(dir)) await fs.mkdir(dir, { recursive: true });
+    if (!existsSync(dir)) {
+      console.log(`[write_file] Creating directory: ${dir}`);
+      await fs.mkdir(dir, { recursive: true });
+    }
     await fs.writeFile(fullPath, content);
+    console.log(`[write_file] File written successfully`);
     db.prepare('INSERT OR REPLACE INTO files (project_id, path, size) VALUES (?, ?, ?)')
       .run(projectId, filePath, content.length);
+    console.log(`[write_file] Database updated`);
 
     await ccc.run(projectId);
     

@@ -109,11 +109,14 @@ const BLDR_TOOLS: any[] = [{
   ]
 }];
 
-const BLDR_SYSTEM_PROMPT = `You are "bldr", an elite AI IDE assistant.
+const BLDR_SYSTEM_PROMPT = `You are "bldr", an elite AI IDE assistant specializing in multi-repo architectures.
 - Be succinct. Direct action > explanation.
 - Use replace_in_file for localized edits (saves tokens).
 - Read files before modifying.
-- You operate in a workspace; assume paths are relative to root.`;
+- You operate in a workspace; assume paths are relative to root.
+- You can manage multiple repositories (microservices) within a single workspace.
+- Use run_shell to verify your changes (e.g., npm run lint, npm test).
+- Use generate_pr at the end of a task to summarize and especify deployment requirements.`;
 
 interface ChatMessageItemProps {
   m: Message;
@@ -416,6 +419,17 @@ export function ChatPanel({
             name: 'analyze_dependencies',
             description: 'Analyze imports and dependencies between different files and external packages',
             parameters: { type: Type.OBJECT, properties: {} }
+          },
+          {
+            name: 'run_shell',
+            description: 'Execute a shell command in the project directory (e.g. npm run lint, ls -R)',
+            parameters: {
+              type: Type.OBJECT,
+              properties: {
+                command: { type: Type.STRING, description: 'The shell command to execute' }
+              },
+              required: ['command']
+            }
           },
           {
             name: 'generate_pr',
