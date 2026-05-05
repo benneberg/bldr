@@ -16,6 +16,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import chokidar from 'chokidar';
 import crypto from 'crypto';
+import { CCCService } from './src/services/cccService.js';
 
 const execAsync = promisify(exec);
 
@@ -27,6 +28,7 @@ const __dirname = path.dirname(__filename);
 const PORT = 3000;
 const DB_PATH = path.join(__dirname, 'mimo.db');
 const WORKSPACE_ROOT = path.join(__dirname, 'workspace');
+const ccc = new CCCService(WORKSPACE_ROOT);
 
 // Ensure workspace exists
 if (!existsSync(WORKSPACE_ROOT)) {
@@ -189,12 +191,14 @@ async function processSyncQueue(io: Server) {
           
           // Tiered Update Logic
           if (relPath.endsWith('.md') || relPath.endsWith('.json') || relPath.endsWith('.ts') || relPath.endsWith('.tsx')) {
+             await ccc.run(projectId);
              await generateProjectContext(projectId);
           }
         }
       } else {
         // File deleted
         db.prepare('DELETE FROM files WHERE project_id = ? AND path = ?').run(projectId, relPath);
+        await ccc.run(projectId);
         await generateProjectContext(projectId);
       }
       
@@ -320,6 +324,11 @@ app.get('/api/projects', (req, res) => {
   res.json(projects);
 });
 
+// Health check
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 // Create project
 app.post('/api/projects', async (req, res) => {
   const { name } = req.body;
@@ -339,6 +348,27 @@ app.post('/api/projects', async (req, res) => {
   } catch (e) {}
   
   res.json({ id, name });
+});
+
+// --- CCC Endpoints ---
+app.post('/api/ccc/run', async (req, res) => {
+  const { projectId } = req.body;
+  try {
+    await ccc.run(projectId);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/ccc/query', async (req, res) => {
+  const { projectId, term, type } = req.body;
+  try {
+    const result = await ccc.query(projectId, term, type);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Chat Persistence
@@ -406,6 +436,8 @@ app.post('/api/tools/replace_in_file', async (req, res) => {
     await fs.writeFile(fullPath, newContent);
     db.prepare('INSERT OR REPLACE INTO files (project_id, path, size) VALUES (?, ?, ?)')
       .run(projectId, filePath, newContent.length);
+
+    await ccc.run(projectId);
 
     emitDebugEvent(io, {
       projectId,
@@ -485,6 +517,7 @@ app.post('/api/import/github', async (req, res) => {
         .run(id, repoId, fullRelativePath, content.length);
     }
 
+    await ccc.run(id);
     await generateProjectContext(id);
 
     res.json({ id, repoId });
@@ -523,6 +556,7 @@ app.post('/api/projects/:projectId/upload', upload.array('files'), async (req, r
       await fs.unlink(file.path);
     }
     
+    await ccc.run(projectId);
     await generateProjectContext(projectId);
     res.json({ success: true, count: files.length });
   } catch (err: any) {
@@ -586,6 +620,7 @@ app.post('/api/import/zip', upload.single('file'), async (req, res) => {
         .run(id, repoId, entryName, content.length);
     }
 
+    await ccc.run(id);
     await generateProjectContext(id);
     
     // Cleanup upload
@@ -707,6 +742,8 @@ app.post('/api/tools/write_file', async (req, res) => {
     db.prepare('INSERT OR REPLACE INTO files (project_id, path, size) VALUES (?, ?, ?)')
       .run(projectId, filePath, content.length);
 
+    await ccc.run(projectId);
+    
     emitDebugEvent(io, {
       projectId,
       sessionId: req.body.sessionId || 'ai-session',

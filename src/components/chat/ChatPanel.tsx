@@ -93,8 +93,24 @@ export function ChatPanel({
 
       if (messages.length === 0) {
         try {
-          const filesToRead = ['WORKSPACE.md', 'LLM.md', 'PKML.md'];
+          // Step 1: Try CCC Context
           let fullContext = '';
+          try {
+            const cccRes = await fetch('/api/ccc/query', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ projectId, term: textToSend, type: 'context' })
+            });
+            const cccData = await cccRes.json();
+            if (cccData && typeof cccData === 'object' && Object.keys(cccData).length > 0) {
+              fullContext = `### CCC STRUCTURED CONTEXT (Deterministic Reality)\n${JSON.stringify(cccData, null, 2)}\n\n`;
+            }
+          } catch (cccErr) {
+            console.warn('CCC Query failed, falling back:', cccErr);
+          }
+
+          // Step 2: Fallback / Supplemental Static Files
+          const filesToRead = ['WORKSPACE.md', 'LLM.md', 'PKML.md'];
           for (const file of filesToRead) {
             const res = await fetch(`/api/tools/read_file`, {
               method: 'POST',
@@ -104,7 +120,9 @@ export function ChatPanel({
             const data = await res.json();
             if (data.content) {
                const header = file === 'WORKSPACE.md' ? 'WORKSPACE OVERVIEW' : (file === 'LLM.md' ? 'ARCHITECTURAL CONVENTIONS' : 'PRODUCT KNOWLEDGE');
-               fullContext += `### ${header} (${file})\n${data.content}\n\n`;
+               if (!fullContext.includes(data.content.slice(0, 50))) { // Avoid duplication if CCC already extracted similar info
+                 fullContext += `### ${header} (${file})\n${data.content}\n\n`;
+               }
             }
           }
 
