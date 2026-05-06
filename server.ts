@@ -18,6 +18,9 @@ import chokidar from 'chokidar';
 import crypto from 'crypto';
 import compression from 'compression';
 import { CCCService } from './src/services/cccService.js';
+import { TelemetryService } from './src/services/TelemetryService.js';
+import { WorkspaceMutationService } from './src/services/WorkspaceMutationService.js';
+import { EventCategory, DomainEventType } from './src/types/events.js';
 import { PROVIDERS, MODELS } from './src/lib/providers.js';
 
 const execAsync = promisify(exec);
@@ -40,6 +43,8 @@ console.log('WORKSPACE_ROOT:', WORKSPACE_ROOT);
 console.log('-----------------------------');
 
 const ccc = new CCCService(WORKSPACE_ROOT);
+let telemetry: TelemetryService;
+let mutationService: WorkspaceMutationService;
 
 // Ensure directories exist
 const ensureDir = async (dir: string) => {
@@ -174,6 +179,18 @@ const upload = multer({ dest: UPLOADS_ROOT });
 // --- Helper Functions ---
 
 function emitDebugEvent(io: Server, event: any) {
+  if (telemetry) {
+    telemetry.logEvent({
+      projectId: event.projectId,
+      sessionId: event.sessionId,
+      type: event.type,
+      payload: event.payload,
+      replayable: event.replayable !== false,
+      metadata: event.gitRef ? { gitRef: `${event.gitRef.branch}:${event.gitRef.commit}` } : {}
+    });
+    return;
+  }
+  
   const debugEvent = {
     id: uuidv4(),
     timestamp: Date.now(),
@@ -410,6 +427,42 @@ app.get('/api/debug/db', (req, res) => {
   }
 });
 
+app.get('/api/debug/runtime', async (req, res) => {
+  res.json({
+    status: 'active',
+    workspaceRoot: WORKSPACE_ROOT,
+    dataDir: DATA_DIR,
+    ioReady: !!io,
+    mutationService: !!mutationService,
+    telemetry: !!telemetry,
+    nodeEnv: process.env.NODE_ENV,
+    uptime: process.uptime()
+  });
+});
+
+app.get('/api/debug/queues', async (req, res) => {
+  res.json({
+    syncQueueSize: syncQueue.size,
+    isSyncing
+  });
+});
+
+app.get('/api/debug/events', async (req, res) => {
+  const { projectId } = req.query;
+  const query = projectId ? 
+    db.prepare('SELECT * FROM debug_events WHERE project_id = ? ORDER BY timestamp DESC LIMIT 50').all(projectId) :
+    db.prepare('SELECT * FROM debug_events ORDER BY timestamp DESC LIMIT 50').all();
+  res.json(query);
+});
+
+app.get('/api/debug/metrics', async (req, res) => {
+  const metrics = db.prepare('SELECT * FROM debug_events WHERE type = "METRIC" ORDER BY timestamp DESC LIMIT 50').all();
+  res.json(metrics.map((m: any) => ({
+    ...m,
+    payload: JSON.parse(m.payload)
+  })));
+});
+
 app.get('/api/debug/storage', async (req, res) => {
   res.json({
     DATA_DIR,
@@ -496,9 +549,22 @@ app.post('/api/projects', async (req, res) => {
 
 // --- CCC Endpoints ---
 app.post('/api/ccc/run', async (req, res) => {
-  const { projectId } = req.body;
+  const { projectId, sessionId } = req.body;
   try {
-    await ccc.run(projectId);
+    const startTime = Date.now();
+    const result = await ccc.run(projectId);
+    const duration = Date.now() - startTime;
+
+    telemetry.logEvent({
+      projectId,
+      sessionId: sessionId || 'ccc-session',
+      category: EventCategory.DOMAIN,
+      type: DomainEventType.CCC_REGENERATED,
+      actor: 'system',
+      payload: { result },
+      metadata: { timing: duration }
+    });
+
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -605,7 +671,7 @@ app.post('/api/tools/search_files', async (req, res) => {
 });
 
 app.post('/api/tools/replace_in_file', async (req, res) => {
-  const { projectId, path: filePath, find, replace, dry_run } = req.body;
+  const { projectId, path: filePath, find, replace, dry_run, sessionId } = req.body;
   try {
     const fullPath = sanitizePath(projectId, filePath);
     const content = await fs.readFile(fullPath, 'utf-8');
@@ -624,23 +690,17 @@ app.post('/api/tools/replace_in_file', async (req, res) => {
       });
     }
 
-    await fs.writeFile(fullPath, newContent);
-    db.prepare('INSERT OR REPLACE INTO files (project_id, path, size) VALUES (?, ?, ?)')
-      .run(projectId, filePath, newContent.length);
-
-    await ccc.run(projectId);
-
-    emitDebugEvent(io, {
+    const event = await mutationService.executeMutation({
       projectId,
-      sessionId: req.body.sessionId || 'ai-session',
-      type: 'ai:action',
-      gitRef: { branch: 'main', commit: 'head' },
-      cccTier: 1,
-      replayable: true,
-      payload: { action: 'replace_in_file', path: filePath }
+      sessionId: sessionId || 'ai-session',
+      actor: 'ai',
+      type: 'write',
+      path: filePath,
+      content: newContent,
+      metadata: { correlationId: uuidv4() }
     });
 
-    res.json({ success: true, message: 'Replacement successful' });
+    res.json({ success: true, message: 'Replacement successful', eventId: event.eventId });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -903,6 +963,7 @@ async function forceFileSync(projectId: string) {
     return;
   }
 
+  const startTime = Date.now();
   console.log(`[forceFileSync] Scanning ${projectDir}...`);
   let fileCount = 0;
 
@@ -929,6 +990,19 @@ async function forceFileSync(projectId: string) {
   };
 
   await walk(projectDir);
+  const duration = Date.now() - startTime;
+  
+  telemetry.logEvent({
+    projectId,
+    source: 'SyncEngine',
+    category: EventCategory.AUDIT,
+    type: 'SYNC_COMPLETE',
+    actor: 'system',
+    replayable: false,
+    payload: { fileCount },
+    metadata: { timing: duration }
+  });
+
   console.log(`[forceFileSync] Sync complete for ${projectId}. Found ${fileCount} files.`);
 }
 
@@ -990,14 +1064,18 @@ app.post('/api/tools/align_check', async (req, res) => {
 });
 
 app.post('/api/tools/generate_pkml', async (req, res) => {
-  const { projectId, content } = req.body; // AI generated PKML content
+  const { projectId, content, sessionId } = req.body; 
   try {
-    const projectDir = path.join(WORKSPACE_ROOT, projectId);
-    const pkmlPath = path.join(projectDir, 'PKML.md');
-    await fs.writeFile(pkmlPath, content);
-    db.prepare('INSERT OR REPLACE INTO files (project_id, path, size) VALUES (?, ?, ?)')
-      .run(projectId, 'PKML.md', content.length);
-    res.json({ success: true });
+    const event = await mutationService.executeMutation({
+      projectId,
+      sessionId: sessionId || 'ai-session',
+      actor: 'ai',
+      type: 'write',
+      path: 'PKML.md',
+      content,
+      metadata: { correlationId: uuidv4() }
+    });
+    res.json({ success: true, eventId: event.eventId });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -1041,37 +1119,20 @@ app.post('/api/tools/read_file', async (req, res) => {
 });
 
 app.post('/api/tools/write_file', async (req, res) => {
-  const { projectId, path: filePath, content } = req.body;
+  const { projectId, path: filePath, content, sessionId } = req.body;
   console.log(`[write_file] Project: ${projectId}, Path: ${filePath}, Content length: ${content?.length || 0}`);
   try {
-    const fullPath = sanitizePath(projectId, filePath);
-    console.log(`[write_file] Resolved path: ${fullPath}`);
-    const dir = path.dirname(fullPath);
-    if (!existsSync(dir)) {
-      console.log(`[write_file] Creating directory: ${dir}`);
-      await fs.mkdir(dir, { recursive: true });
-    }
-    await fs.writeFile(fullPath, content);
-    console.log(`[write_file] File written successfully`);
-    db.prepare('INSERT OR REPLACE INTO files (project_id, path, size) VALUES (?, ?, ?)')
-      .run(projectId, filePath, content.length);
-    console.log(`[write_file] Database updated`);
-
-    const cccResult = await ccc.run(projectId);
-    await generateProjectContext(projectId);
-
-    emitDebugEvent(io, {
+    const event = await mutationService.executeMutation({
       projectId,
-      sessionId: req.body.sessionId || 'ai-session',
-      type: 'fs:change',
-      gitRef: { branch: 'main', commit: 'head' },
-      cccTier: 1,
-      payload: { event: 'write_file', path: filePath, ccc: cccResult }
+      sessionId: sessionId || 'ai-session',
+      actor: 'ai',
+      type: 'write',
+      path: filePath,
+      content,
+      metadata: { correlationId: uuidv4() }
     });
 
-    io.to(projectId).emit('fs_event', { type: 'write', path: filePath, projectId });
-
-    res.json({ success: true });
+    res.json({ success: true, eventId: event.eventId });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -1200,14 +1261,20 @@ app.post('/api/tools/get_ccc_status', async (req, res) => {
 });
 
 app.post('/api/tools/run_shell', async (req, res) => {
-  const { projectId, command } = req.body;
+  const { projectId, command, sessionId } = req.body;
   try {
     const projectDir = path.join(WORKSPACE_ROOT, projectId);
-    
-    // Security check: only allow a whitelist of basic safe commands or just trust the sandbox for now
-    // In a real app we would be very careful here.
     const { stdout, stderr } = await execAsync(command, { cwd: projectDir });
     
+    telemetry.logEvent({
+      projectId,
+      sessionId: sessionId || 'shell-session',
+      category: EventCategory.AUDIT,
+      type: 'SHELL_COMMAND_EXECUTED',
+      actor: 'user',
+      payload: { command, stdout, stderr }
+    });
+
     res.json({ stdout, stderr });
   } catch (err: any) {
     res.status(500).json({ 
@@ -1297,12 +1364,25 @@ app.post('/api/git/gitignore', async (req, res) => {
 });
 
 app.post('/api/git/commit', async (req, res) => {
-  const { projectId, message } = req.body;
+  const { projectId, message, sessionId } = req.body;
   try {
     const projectDir = path.join(WORKSPACE_ROOT, projectId);
     await execAsync('git add .', { cwd: projectDir });
     const { stdout } = await execAsync(`git commit -m "${message.replace(/"/g, '\\"')}"`, { cwd: projectDir });
-    res.json({ success: true, output: stdout });
+    
+    const { stdout: hash } = await execAsync('git rev-parse HEAD', { cwd: projectDir });
+    
+    telemetry.logEvent({
+      projectId,
+      sessionId: sessionId || 'git-session',
+      category: EventCategory.AUDIT,
+      type: 'GIT_COMMIT_CREATED',
+      actor: 'user',
+      payload: { message, output: stdout, hash: hash.trim() },
+      metadata: { gitRef: `main:${hash.trim()}` }
+    });
+
+    res.json({ success: true, output: stdout, hash: hash.trim() });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -1409,9 +1489,17 @@ async function startServer() {
     transports: ['websocket', 'polling']
   });
 
+  telemetry = new TelemetryService(db, io);
+  mutationService = new WorkspaceMutationService(db, io, ccc, telemetry, WORKSPACE_ROOT);
+
   // Watcher Initialization
   const watcher = chokidar.watch(WORKSPACE_ROOT, {
-    ignored: /(^|[\/\\])\../, // ignore dotfiles
+    ignored: [
+      /(^|[\/\\])\../, // ignore dotfiles
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/.git/**'
+    ],
     persistent: true,
     ignoreInitial: true,
     awaitWriteFinish: {
@@ -1420,24 +1508,33 @@ async function startServer() {
     }
   });
 
-  watcher.on('all', (event, fullPath) => {
+  watcher.on('all', async (event, fullPath) => {
     const relToWorkspace = path.relative(WORKSPACE_ROOT, fullPath);
     const parts = relToWorkspace.split(path.sep);
     const projectId = parts[0];
     const relPath = parts.slice(1).join('/');
 
-    if (projectId && relPath && !relPath.endsWith('CONTEXT.md') && !relPath.endsWith('WORKSPACE.md')) {
-      syncQueue.add(`${projectId}|${relPath}`);
-      processSyncQueue(io);
+    if (!projectId || !relPath) return;
 
-      emitDebugEvent(io, {
-        projectId,
-        sessionId: 'fs-sync', 
-        type: 'fs:change',
-        gitRef: { branch: 'main', commit: 'head' },
-        payload: { event, path: relPath }
-      });
+    // Filter out internal artifacts from redundant sync loops
+    if (relPath.endsWith('CONTEXT.md') || relPath.endsWith('WORKSPACE.md') || relPath.endsWith('LLM.md') || relPath.endsWith('PKML.md')) {
+      return;
     }
+
+    // Passive infrastructure notification
+    telemetry.logEvent({
+      projectId,
+      source: 'Watcher',
+      category: EventCategory.AUDIT,
+      type: 'FS_OBSERVED',
+      actor: 'system',
+      replayable: false,
+      payload: { event, path: relPath }
+    });
+
+    // Delegate sync authority to the queue/sync engine
+    syncQueue.add(`${projectId}|${relPath}`);
+    processSyncQueue(io);
   });
 
   const projectUsers: Record<string, Set<string>> = {};
