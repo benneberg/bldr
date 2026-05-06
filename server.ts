@@ -28,10 +28,17 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PORT = process.env.PORT || 3000;
-const DATA_DIR = process.env.DATA_DIR || __dirname;
+const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : __dirname;
 const DB_PATH = path.join(DATA_DIR, 'mimo.db');
 const WORKSPACE_ROOT = path.join(DATA_DIR, 'workspace');
 const UPLOADS_ROOT = path.join(DATA_DIR, 'uploads');
+
+console.log('--- Storage Configuration ---');
+console.log('__dirname:', __dirname);
+console.log('DATA_DIR:', DATA_DIR);
+console.log('WORKSPACE_ROOT:', WORKSPACE_ROOT);
+console.log('-----------------------------');
+
 const ccc = new CCCService(WORKSPACE_ROOT);
 
 // Ensure directories exist
