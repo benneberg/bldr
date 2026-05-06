@@ -32,11 +32,21 @@ export function ImportPanel({ onImport, isImporting }: { onImport: (url: string,
     formData.append('name', name || file.name.replace('.zip', ''));
     
     try {
-      await fetch('/api/import/zip', {
+      const res = await fetch('/api/import/zip', {
         method: 'POST',
         body: formData
       });
-      window.location.reload();
+      const text = await res.text();
+      console.log('[ZipImport] API RESPONSE:', text);
+      const data = JSON.parse(text);
+      if (res.ok) {
+        window.location.reload();
+      } else {
+        alert('ZIP Import failed: ' + (data.error || 'Unknown error'));
+      }
+    } catch (e) {
+      console.error('[ZipImport] Error:', e);
+      alert('ZIP Upload failed');
     } finally {
       setIsZipping(false);
     }
@@ -50,10 +60,14 @@ export function ImportPanel({ onImport, isImporting }: { onImport: (url: string,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: name || 'New Project' })
       });
-      const data = await res.json();
+      const text = await res.text();
+      console.log('[CreateProject] API RESPONSE:', text);
+      const data = JSON.parse(text);
       if (data.id) {
         window.location.reload();
       }
+    } catch (e) {
+      console.error('[CreateProject] Error:', e);
     } finally {
       setIsZipping(false);
     }

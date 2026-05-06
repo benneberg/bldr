@@ -104,21 +104,29 @@ export function FilesPanel({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ projectId })
       });
-      const data = await res.json();
+      const text = await res.text();
+      console.log('[GitStatus] API RESPONSE:', text);
+      const data = JSON.parse(text);
       const statusMap: Record<string, any> = {};
       data.files?.forEach((f: any) => {
         statusMap[f.path] = f.status;
       });
       setGitStatus(statusMap);
     } catch (e) {
-      console.error('Failed to fetch git status:', e);
+      console.error('[GitStatus] Failed to fetch git status:', e);
     }
   };
 
   const fetchGitignore = async () => {
-    const res = await fetch(`/api/git/gitignore/${projectId}`);
-    const data = await res.json();
-    setGitignoreContent(data.content || '');
+    try {
+      const res = await fetch(`/api/git/gitignore/${projectId}`);
+      const text = await res.text();
+      console.log('[Gitignore] API RESPONSE:', text);
+      const data = JSON.parse(text);
+      setGitignoreContent(data.content || '');
+    } catch (e) {
+      console.error('[Gitignore] Fetch failed:', e);
+    }
   };
 
   const handleSaveGitignore = async () => {
@@ -149,7 +157,9 @@ export function FilesPanel({
     console.log(`[FilesPanel] Fetching files for ${projectId}...`);
     try {
       const res = await fetch(`/api/files/${projectId}`);
-      const data = await res.json();
+      const text = await res.text();
+      console.log('[FilesFetch] API RESPONSE:', text);
+      const data = JSON.parse(text);
       if (Array.isArray(data)) {
         console.log(`[FilesPanel] Received ${data.length} files`);
         setFiles(data);
@@ -202,7 +212,10 @@ export function FilesPanel({
     try {
       const res = await fetch(`/api/files/${projectId}/content?path=${encodeURIComponent(path)}`);
       const text = await res.text();
+      console.log(`[FileOpen] ${path} response length: ${text.length}`);
       setContent(text);
+    } catch (e) {
+      console.error('[FileOpen] Load failed:', e);
     } finally {
       setIsLoading(false);
     }

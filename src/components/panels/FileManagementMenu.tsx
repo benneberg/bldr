@@ -34,14 +34,17 @@ export function FileManagementMenu({ projectId, onImportSuccess }: FileManagemen
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url, name, projectId })
       });
+      const text = await res.text();
+      console.log('[GitHubImport] API RESPONSE:', text);
+      const data = JSON.parse(text);
       if (res.ok) {
         onImportSuccess();
         alert('Repository imported successfully into workspace.');
       } else {
-        const err = await res.json();
-        alert('Import failed: ' + err.error);
+        alert('Import failed: ' + (data.error || 'Unknown error'));
       }
     } catch (e) {
+      console.error('[GitHubImport] Network error:', e);
       alert('Network error during import');
     }
   };
@@ -62,13 +65,17 @@ export function FileManagementMenu({ projectId, onImportSuccess }: FileManagemen
         method: 'POST',
         body: formData
       });
+      const text = await res.text();
+      console.log('[ZipImport] API RESPONSE:', text);
+      const data = JSON.parse(text);
       if (res.ok) {
-        const data = await res.json();
-        window.location.hash = data.id; // Navigate to new project or stay if updating? 
-        // For now let's just reload
+        window.location.hash = data.id; 
         window.location.reload();
+      } else {
+        alert('Upload failed: ' + (data.error || 'Unknown error'));
       }
     } catch (e) {
+      console.error('[ZipImport] Error:', e);
       alert('ZIP Upload failed');
     }
   };

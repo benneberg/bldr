@@ -57,6 +57,21 @@ await ensureDir(UPLOADS_ROOT);
 // Database Setup
 console.log(`Initializing database at ${DB_PATH}`);
 const db = new Database(DB_PATH, { verbose: console.log });
+db.pragma('journal_mode = WAL');
+db.pragma('synchronous = NORMAL');
+db.pragma('temp_store = MEMORY');
+db.pragma('foreign_keys = ON');
+
+// Throttled sync map
+const lastSyncMap = new Map<string, number>();
+async function ensureRecentSync(projectId: string) {
+  const now = Date.now();
+  const last = lastSyncMap.get(projectId) || 0;
+  if (now - last > 5000) {
+    await forceFileSync(projectId);
+    lastSyncMap.set(projectId, now);
+  }
+}
 
 // Log current state
 try {
@@ -395,6 +410,26 @@ app.get('/api/debug/db', (req, res) => {
   }
 });
 
+app.get('/api/debug/storage', async (req, res) => {
+  res.json({
+    DATA_DIR,
+    DB_PATH,
+    WORKSPACE_ROOT,
+    exists: existsSync(WORKSPACE_ROOT)
+  });
+});
+
+app.get('/api/debug/files/:projectId', (req, res) => {
+  try {
+    const files = db.prepare(
+      'SELECT * FROM files WHERE project_id = ? LIMIT 100'
+    ).all(req.params.projectId);
+    res.json(files);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/proxy/:projectId/*', async (req, res) => {
   const { projectId } = req.params;
   const filePath = req.params[0] || 'index.html';
@@ -437,15 +472,6 @@ app.get('/health', (req, res) => {
     }
   });
 });
-
-// Serve static files in production
-if (process.env.NODE_ENV === 'production') {
-  const distPath = path.join(__dirname, 'dist');
-  app.use(express.static(distPath));
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(distPath, 'index.html'));
-  });
-}
 
 // Create project
 app.post('/api/projects', async (req, res) => {
@@ -910,8 +936,8 @@ async function forceFileSync(projectId: string) {
 app.get('/api/files/:projectId', async (req, res) => {
   const { projectId } = req.params;
   try {
-    // Force sync before return to ensure consistency
-    await forceFileSync(projectId);
+    // Throttled sync instead of full scan every time
+    await ensureRecentSync(projectId);
 
     const files = db.prepare(`
       SELECT f.path, f.size, f.repository_id, r.name as repo_name, r.id as repo_id 
@@ -1375,7 +1401,13 @@ let io: Server;
 
 async function startServer() {
   const httpServer = createServer(app);
-  io = new Server(httpServer);
+  io = new Server(httpServer, {
+    cors: {
+      origin: '*',
+      methods: ['GET', 'POST']
+    },
+    transports: ['websocket', 'polling']
+  });
 
   // Watcher Initialization
   const watcher = chokidar.watch(WORKSPACE_ROOT, {
