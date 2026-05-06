@@ -37,3 +37,7 @@ bldr workspaces use a flat hierarchy optimized for AI ingestion:
 2. **Attach Repositories**: Import one or more repositories via GitHub URL.
 3. **Chat and Code**: Ask the AI to build features. It will use the generated context to understand the relationships between your services.
 4. **Preview**: Verify your changes in the Live Preview tab.
+
+## 🌍 Deployment
+
+For instructions on how to deploy this application to **Railway** with persistent storage, please refer to [RAILWAY.md](./RAILWAY.md).

@@ -28,9 +28,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PORT = process.env.PORT || 3000;
-const DB_PATH = path.join(__dirname, 'mimo.db');
-const WORKSPACE_ROOT = path.join(__dirname, 'workspace');
-const UPLOADS_ROOT = path.join(__dirname, 'uploads');
+const DATA_DIR = process.env.DATA_DIR || __dirname;
+const DB_PATH = path.join(DATA_DIR, 'mimo.db');
+const WORKSPACE_ROOT = path.join(DATA_DIR, 'workspace');
+const UPLOADS_ROOT = path.join(DATA_DIR, 'uploads');
 const ccc = new CCCService(WORKSPACE_ROOT);
 
 // Ensure directories exist
@@ -418,7 +419,16 @@ app.get('/api/proxy/:projectId/*', async (req, res) => {
 
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    persistence: {
+      data_dir: DATA_DIR,
+      using_custom_data_dir: process.env.DATA_DIR !== undefined,
+      db_path: DB_PATH,
+      workspace_root: WORKSPACE_ROOT
+    }
+  });
 });
 
 // Serve static files in production
