@@ -398,8 +398,9 @@ Core Directive: EXECUTE, DO NOT JUST DESCRIBE.
 2. DO NOT output code blocks in markdown if you should be writing them to files. 
 3. Always provide FULL file content when using write_file. 
 4. Reference CCC context (Structured Context) via get_ccc_status to maintain architectural integrity.
-5. If Planning Mode is active, focus on discussion. If it is NOT active, proceed directly to execution.
-6. Verify all changes through analysis tools if available.`;
+5. If the user wants to run or preview their app, use run_shell to execute build/run commands (e.g., npm install, npm run build, python main.py) and tell the user to check the Preview tab.
+6. If Planning Mode is active, focus on discussion. If it is NOT active, proceed directly to execution.
+7. Verify all changes through analysis tools if available.`;
 
       const genConfig = {
         systemInstruction,

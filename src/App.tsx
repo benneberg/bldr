@@ -334,11 +334,45 @@ export default function App() {
               className="absolute inset-0 flex flex-col sm:flex-row bg-mimo-bg"
             >
                <div className="flex-1 p-3 sm:p-6 flex flex-col min-w-0">
+                  <div className="flex items-center gap-2 mb-3 px-1">
+                    <div className="flex-1 bg-black/20 border border-mimo-border rounded-lg px-3 py-1.5 flex items-center gap-2 text-[10px] font-mono text-mimo-text-muted">
+                      <Code className="w-3 h-3 text-mimo-accent" />
+                      <span className="opacity-50">preview://</span>
+                      <input 
+                        type="text" 
+                        defaultValue="/" 
+                        id="preview-path-input"
+                        className="bg-transparent border-none outline-none flex-1 text-mimo-text"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            const iframe = document.querySelector('iframe');
+                            if (iframe) {
+                              iframe.src = `/api/proxy/${selectedProjectId}/${(e.target as HTMLInputElement).value.replace(/^\//, '')}`;
+                            }
+                          }
+                        }}
+                      />
+                    </div>
+                    <button 
+                      onClick={() => {
+                        const input = document.getElementById('preview-path-input') as HTMLInputElement;
+                        const iframe = document.querySelector('iframe');
+                        if (iframe && input) {
+                          iframe.src = `/api/proxy/${selectedProjectId}/${input.value.replace(/^\//, '')}`;
+                        }
+                      }}
+                      className="p-1.5 bg-mimo-accent/10 border border-mimo-accent/20 rounded-lg hover:bg-mimo-accent/20 transition-colors"
+                    >
+                      <Play className="w-3 h-3 text-mimo-accent" />
+                    </button>
+                  </div>
+
                   <div className="flex-1 bg-white rounded border border-mimo-border overflow-hidden relative shadow-inner">
                     <iframe 
                       src={`/api/proxy/${selectedProjectId}/`}
                       className="w-full h-full border-none"
                       title="Project Preview"
+                      id="preview-iframe"
                       sandbox="allow-scripts allow-forms allow-same-origin"
                     />
                     <div className="absolute top-2 right-2 px-2 py-0.5 bg-black/50 text-[8px] font-mono text-green-400 rounded backdrop-blur">
@@ -346,13 +380,34 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="flex-[2] bg-black m-3 sm:m-6 mt-0 rounded border border-mimo-border flex flex-col overflow-hidden min-h-[150px]">
+                  <div className="flex-[2] bg-black m-3 sm:m-6 mt-4 rounded border border-mimo-border flex flex-col overflow-hidden min-h-[150px]">
                      <div className="px-4 py-2 border-b border-mimo-border bg-black/50 flex items-center gap-2">
                        <TerminalIcon className="w-3 h-3 text-mimo-accent" />
                        <span className="text-[9px] font-mono uppercase tracking-widest text-mimo-text-muted font-bold">bldr-term-v1</span>
-                       <div className="ml-auto flex items-center gap-1.5">
-                         <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                         <span className="text-[8px] font-mono text-mimo-text-muted">ACTIVE</span>
+                       <div className="ml-auto flex items-center gap-3">
+                         <div className="flex items-center gap-2">
+                            <button 
+                              onClick={() => {
+                                setCommand('npm install');
+                              }}
+                              className="text-[8px] font-mono text-mimo-text-muted hover:text-white transition-colors"
+                            >
+                              [INSTALL]
+                            </button>
+                            <button 
+                              onClick={() => {
+                                setCommand('npm run build');
+                              }}
+                              className="text-[8px] font-mono text-mimo-text-muted hover:text-white transition-colors"
+                            >
+                              [BUILD]
+                            </button>
+                         </div>
+                         <div className="w-px h-3 bg-mimo-border" />
+                         <div className="flex items-center gap-1.5">
+                           <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                           <span className="text-[8px] font-mono text-mimo-text-muted">ACTIVE</span>
+                         </div>
                        </div>
                      </div>
                      <div 
