@@ -828,9 +828,50 @@ app.post('/api/import/zip', upload.single('file'), async (req, res) => {
   }
 });
 
+app.get('/api/projects/:projectId/export', async (req, res) => {
+  const { projectId } = req.params;
+  try {
+    const projectDir = path.join(WORKSPACE_ROOT, projectId);
+    const project = db.prepare('SELECT name FROM projects WHERE id = ?').get(projectId) as any;
+    
+    if (!existsSync(projectDir)) {
+      return res.status(404).json({ error: 'Project directory not found' });
+    }
+
+    const zip = new AdmZip();
+    zip.addLocalFolder(projectDir);
+    const buffer = zip.toBuffer();
+    
+    const fileName = (project?.name || 'project').replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}.zip"`);
+    res.send(buffer);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/projects/:projectId/reset-sync', async (req, res) => {
+  const { projectId } = req.params;
+  try {
+    db.prepare('DELETE FROM files WHERE project_id = ?').run(projectId);
+    await forceFileSync(projectId);
+    await generateProjectContext(projectId);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 async function forceFileSync(projectId: string) {
   const projectDir = path.join(WORKSPACE_ROOT, projectId);
-  if (!existsSync(projectDir)) return;
+  if (!existsSync(projectDir)) {
+    console.error(`[forceFileSync] Directory not found: ${projectDir}`);
+    return;
+  }
+
+  console.log(`[forceFileSync] Scanning ${projectDir}...`);
+  let fileCount = 0;
 
   const walk = async (dir: string, base = '') => {
     const entries = await fs.readdir(dir, { withFileTypes: true });
@@ -843,15 +884,19 @@ async function forceFileSync(projectId: string) {
       } else {
         const stats = await fs.stat(fullPath);
         db.prepare(`
-          INSERT INTO files (project_id, path, size)
-          VALUES (?, ?, ?)
-          ON CONFLICT(project_id, path) DO UPDATE SET size = excluded.size
+          INSERT INTO files (project_id, path, size, modified_at)
+          VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+          ON CONFLICT(project_id, path) DO UPDATE SET 
+            size = excluded.size,
+            modified_at = CURRENT_TIMESTAMP
         `).run(projectId, relPath, stats.size);
+        fileCount++;
       }
     }
   };
 
   await walk(projectDir);
+  console.log(`[forceFileSync] Sync complete for ${projectId}. Found ${fileCount} files.`);
 }
 
 // Get files tree with repo info

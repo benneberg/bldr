@@ -20,6 +20,7 @@ import { ChatPanel } from './components/chat/ChatPanel';
 import { ImportPanel, TabButton } from './components/panels/Common';
 import { FilesPanel } from './components/panels/FilesPanel';
 import { InfoPanel } from './components/panels/InfoPanel';
+import { FileManagementMenu } from './components/panels/FileManagementMenu';
 import { DebuggerPanel } from './components/panels/DebuggerPanel';
 import { Project, Message } from './types';
 
@@ -237,6 +238,14 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-4 ml-auto">
+          <FileManagementMenu 
+             projectId={selectedProjectId} 
+             onImportSuccess={() => {
+                // If it was a GitHub import, we might want to refresh files
+                // but FilesPanel already listens to sync events.
+                // We'll just trigger a local refresh if needed.
+             }} 
+          />
           <button 
             onClick={() => setIsInfoOpen(true)}
             className="p-2 hover:bg-white/5 rounded-lg transition-colors"

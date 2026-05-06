@@ -65,6 +65,7 @@ export function FilesPanel({
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [remoteEditBy, setRemoteEditBy] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isGitOpen, setIsGitOpen] = useState(false);
 
   const editorRef = useRef<any>(null);
 
@@ -410,7 +411,7 @@ export function FilesPanel({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-mimo-text">
             <FolderCode className="w-3 h-3 text-mimo-accent" />
-            <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-mimo-text-muted">Repository Context</span>
+            <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-mimo-text-muted">Repository</span>
           </div>
           <div className="flex items-center gap-2">
             <button 
@@ -423,72 +424,92 @@ export function FilesPanel({
             >
               <RefreshCcw className="w-3 h-3" />
             </button>
-             <button 
-              onClick={() => { fetchGitignore(); setShowGitignore(true); }}
-              className="px-3 py-1 bg-white/5 border border-mimo-border hover:border-mimo-accent hover:text-mimo-accent rounded-full text-[9px] font-mono transition-all flex items-center gap-2"
-              title="Manage .gitignore"
-            >
-              <FileX className="w-3 h-3" />
-              IGNORE
-            </button>
             <button 
-              onClick={handleGitCommit}
-              className="px-3 py-1 bg-white/5 border border-mimo-border hover:border-mimo-accent hover:text-mimo-accent rounded-full text-[9px] font-mono transition-all flex items-center gap-2"
-              title="Git Commit"
-            >
-              <GitCommit className="w-3 h-3" />
-              COMMIT
-            </button>
-            <input 
-              type="file" 
-              multiple 
-              onChange={handleFileUpload} 
-              className="hidden" 
-              id="file-upload-input" 
-            />
-            <button 
-              onClick={() => document.getElementById('file-upload-input')?.click()}
-              className="px-3 py-1 bg-white/5 border border-mimo-border hover:border-mimo-accent hover:text-mimo-accent rounded-full text-[9px] font-mono transition-all flex items-center gap-2"
-              title="Upload Local Files"
-            >
-              <UploadCloud className="w-3 h-3" />
-              UPLOAD
-            </button>
-            <button 
-              onClick={() => onReview(files.map(f => f.path))}
-              className="px-3 py-1 bg-mimo-accent/10 border border-mimo-accent/20 hover:border-mimo-accent text-mimo-accent rounded-full text-[9px] font-mono transition-all flex items-center gap-2"
-            >
-              <Activity className="w-3 h-3" />
-              AUDIT
-            </button>
-            <button 
-              onClick={() => {
-                const url = prompt('GitHub Repository URL:');
-                const name = prompt('Service Name:');
-                if (url && name) {
-                  fetch('/api/import/github', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url, name, projectId })
-                  }).then(() => window.location.reload());
+              onClick={async () => {
+                if(confirm('This will rescan the entire workspace directory. Continue?')) {
+                  setIsLoading(true);
+                  await fetch(`/api/projects/${projectId}/reset-sync`, { method: 'POST' });
+                  fetchFiles();
+                  setIsLoading(false);
                 }
               }}
-              className="p-1.5 bg-white/5 border border-mimo-border rounded-lg text-mimo-text-muted hover:text-mimo-accent transition-all"
-              title="Attach Repo"
+              className="px-3 py-1 bg-white/5 border border-mimo-border hover:border-red-500/50 hover:text-red-500 rounded-full text-[9px] font-mono transition-all flex items-center gap-2"
+              title="Reset Sync"
             >
-              <Plus className="w-4 h-4" />
+              <Activity className="w-3 h-3" />
+              RESET SYNC
+            </button>
+            <button 
+              onClick={() => setIsGitOpen(!isGitOpen)}
+              className={`px-3 py-1 border transition-all rounded-full text-[9px] font-mono flex items-center gap-2 ${
+                isGitOpen ? 'bg-mimo-accent text-mimo-bg border-mimo-accent' : 'bg-white/5 border-mimo-border text-mimo-text-muted hover:text-mimo-accent'
+              }`}
+            >
+              <GitCommit className="w-3 h-3" />
+              GIT {isGitOpen ? 'CLOSE' : 'OPEN'}
             </button>
           </div>
         </div>
 
-        <div className="relative group">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-mimo-text-muted group-focus-within:text-mimo-accent transition-colors" />
+        <AnimatePresence>
+          {isGitOpen && (
+            <motion.div 
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="overflow-hidden bg-black/20 rounded-xl border border-mimo-border"
+            >
+              <div className="p-3 flex flex-wrap gap-2">
+                <button 
+                  onClick={() => { fetchGitignore(); setShowGitignore(true); }}
+                  className="px-3 py-1.5 bg-white/5 border border-mimo-border hover:border-mimo-accent hover:text-mimo-accent rounded-lg text-[9px] font-mono transition-all flex items-center gap-2"
+                >
+                  <FileX className="w-3 h-3" />
+                  .gitignore
+                </button>
+                <button 
+                  onClick={handleGitCommit}
+                  className="px-3 py-1.5 bg-white/5 border border-mimo-border hover:border-mimo-accent hover:text-mimo-accent rounded-lg text-[9px] font-mono transition-all flex items-center gap-2"
+                >
+                  <GitCommit className="w-3 h-3" />
+                  COMMIT
+                </button>
+                <button 
+                  onClick={() => onReview(files.map(f => f.path))}
+                  className="px-3 py-1.5 bg-mimo-accent/10 border border-mimo-accent/20 hover:border-mimo-accent text-mimo-accent rounded-lg text-[9px] font-mono transition-all flex items-center gap-2"
+                >
+                  <Sparkles className="w-3 h-3" />
+                  AI AUDIT
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <div className="flex gap-2">
+          <div className="relative flex-1 group">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-mimo-text-muted group-focus-within:text-mimo-accent transition-colors" />
+            <input 
+              type="text" 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search symbols or regex..."
+              className="w-full bg-white/5 border border-mimo-border rounded-lg pl-9 pr-4 py-1.5 text-[10px] font-mono focus:outline-none focus:border-mimo-accent transition-all placeholder:text-white/10"
+            />
+          </div>
+          <button 
+            onClick={() => document.getElementById('file-upload-input')?.click()}
+            className="px-4 bg-mimo-panel border border-mimo-border rounded-lg text-mimo-text-muted hover:text-mimo-accent transition-all"
+            title="Upload Files"
+          >
+            <Plus className="w-4 h-4" />
+          </button>
           <input 
-            type="text" 
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search symbols or regex..."
-            className="w-full bg-white/5 border border-mimo-border rounded-lg pl-9 pr-4 py-1.5 text-[10px] font-mono focus:outline-none focus:border-mimo-accent transition-all placeholder:text-white/10"
+            type="file" 
+            multiple 
+            onChange={handleFileUpload} 
+            className="hidden" 
+            id="file-upload-input" 
           />
         </div>
       </div>
