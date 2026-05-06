@@ -219,17 +219,37 @@ async function processSyncQueue(io: Server) {
           db.prepare('INSERT OR REPLACE INTO files (project_id, path, size, hash, modified_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)')
             .run(projectId, relPath, stats.size, hash);
           
+          let cccTier = null;
           // Tiered Update Logic
           if (relPath.endsWith('.md') || relPath.endsWith('.json') || relPath.endsWith('.ts') || relPath.endsWith('.tsx')) {
              await ccc.run(projectId);
              await generateProjectContext(projectId);
+             cccTier = 1;
           }
+
+          emitDebugEvent(io, {
+            projectId,
+            sessionId: 'fs-watcher',
+            type: 'fs:change',
+            gitRef: { branch: 'main', commit: 'head' },
+            cccTier,
+            payload: { event: 'update', path: relPath }
+          });
         }
       } else {
         // File deleted
         db.prepare('DELETE FROM files WHERE project_id = ? AND path = ?').run(projectId, relPath);
         await ccc.run(projectId);
         await generateProjectContext(projectId);
+
+        emitDebugEvent(io, {
+          projectId,
+          sessionId: 'fs-watcher',
+          type: 'fs:change',
+          gitRef: { branch: 'main', commit: 'head' },
+          cccTier: 1,
+          payload: { event: 'delete', path: relPath }
+        });
       }
       
       io.to(projectId).emit('fs_event', { type: 'sync', path: relPath });
@@ -456,6 +476,10 @@ app.post('/api/ccc/query', async (req, res) => {
 app.post('/api/ai', async (req, res) => {
   const { provider, tier, messages, tools, tool_choice, temperature } = req.body;
   
+  if (tools && Array.isArray(tools)) {
+    console.log(`[AI Proxy] Tools provided by client:`, tools.map((t: any) => t.function?.name || t.name));
+  }
+
   const providerConfig = PROVIDERS[provider as keyof typeof PROVIDERS];
   if (!providerConfig) {
     return res.status(400).json({ error: `Unknown provider: ${provider}` });
@@ -671,8 +695,7 @@ app.post('/api/import/github', async (req, res) => {
       payload: { url, name, filesCreated, ccc: cccResult }
     });
 
-    io.to(id).emit('fs_event', { type: 'import', projectId: id });
-
+    io.to(id).emit('fs_event', { type: 'sync_complete', projectId: id });
     res.json({ id, repoId });
   } catch (error: any) {
     console.error('Import failed:', error);
@@ -719,8 +742,7 @@ app.post('/api/projects/:projectId/upload', upload.array('files'), async (req, r
       payload: { event: 'upload', count: files.length, ccc: cccResult }
     });
 
-    io.to(projectId).emit('fs_event', { type: 'upload', projectId });
-
+    io.to(projectId).emit('fs_event', { type: 'sync_complete', projectId });
     res.json({ success: true, count: files.length });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -796,18 +818,46 @@ app.post('/api/import/zip', upload.single('file'), async (req, res) => {
   }
 });
 
+async function forceFileSync(projectId: string) {
+  const projectDir = path.join(WORKSPACE_ROOT, projectId);
+  if (!existsSync(projectDir)) return;
+
+  const walk = async (dir: string, base = '') => {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const relPath = path.join(base, entry.name);
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+         if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === 'dist') continue;
+         await walk(fullPath, relPath);
+      } else {
+        const stats = await fs.stat(fullPath);
+        db.prepare(`
+          INSERT INTO files (project_id, path, size)
+          VALUES (?, ?, ?)
+          ON CONFLICT(project_id, path) DO UPDATE SET size = excluded.size
+        `).run(projectId, relPath, stats.size);
+      }
+    }
+  };
+
+  await walk(projectDir);
+}
+
 // Get files tree with repo info
 app.get('/api/files/:projectId', async (req, res) => {
   const { projectId } = req.params;
-  console.log(`[GET /api/files/${projectId}] Fetching file list...`);
   try {
+    // Force sync before return to ensure consistency
+    await forceFileSync(projectId);
+
     const files = db.prepare(`
       SELECT f.path, f.size, f.repository_id, r.name as repo_name, r.id as repo_id 
       FROM files f 
       LEFT JOIN repositories r ON f.repository_id = r.id 
       WHERE f.project_id = ?
     `).all(projectId);
-    console.log(`[GET /api/files/${projectId}] Found ${files.length} files`);
+    
     res.json(files);
   } catch (err: any) {
     console.error(`[GET /api/files/${projectId}] Error:`, err.message);
@@ -903,34 +953,20 @@ app.post('/api/tools/read_file', async (req, res) => {
 });
 
 app.post('/api/tools/write_file', async (req, res) => {
-  const { projectId, path: filePath, content, sessionId } = req.body;
-
-  console.log(
-    `[write_file] Project: ${projectId}, Path: ${filePath}, Content length: ${content?.length || 0}`
-  );
-
+  const { projectId, path: filePath, content } = req.body;
+  console.log(`[write_file] Project: ${projectId}, Path: ${filePath}, Content length: ${content?.length || 0}`);
   try {
-    if (!projectId || !filePath || typeof content !== 'string') {
-      return res.status(400).json({ error: 'Invalid input' });
-    }
-
     const fullPath = sanitizePath(projectId, filePath);
     console.log(`[write_file] Resolved path: ${fullPath}`);
-
     const dir = path.dirname(fullPath);
-
     if (!existsSync(dir)) {
       console.log(`[write_file] Creating directory: ${dir}`);
       await fs.mkdir(dir, { recursive: true });
     }
-
     await fs.writeFile(fullPath, content);
     console.log(`[write_file] File written successfully`);
-
-    db.prepare(
-      'INSERT OR REPLACE INTO files (project_id, path, size) VALUES (?, ?, ?)'
-    ).run(projectId, filePath, content.length);
-
+    db.prepare('INSERT OR REPLACE INTO files (project_id, path, size) VALUES (?, ?, ?)')
+      .run(projectId, filePath, content.length);
     console.log(`[write_file] Database updated`);
 
     const cccResult = await ccc.run(projectId);
@@ -938,35 +974,18 @@ app.post('/api/tools/write_file', async (req, res) => {
 
     emitDebugEvent(io, {
       projectId,
-      sessionId: sessionId || 'ai-session',
+      sessionId: req.body.sessionId || 'ai-session',
       type: 'fs:change',
       gitRef: { branch: 'main', commit: 'head' },
       cccTier: 1,
-      payload: {
-        event: 'write_file',
-        path: filePath,
-        ccc: cccResult,
-      },
-      replayable: true,
+      payload: { event: 'write_file', path: filePath, ccc: cccResult }
     });
 
-    io.to(projectId).emit('fs_event', {
-      type: 'write',
-      path: filePath,
-      projectId,
-    });
+    io.to(projectId).emit('fs_event', { type: 'write', path: filePath, projectId });
 
-    return res.json({
-      success: true,
-      replayable: true,
-      payload: { action: 'write_file', path: filePath },
-    });
-
-  } catch (err: unknown) {
-    const message =
-      err instanceof Error ? err.message : 'Unknown error';
-
-    return res.status(500).json({ error: message });
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
 });
 

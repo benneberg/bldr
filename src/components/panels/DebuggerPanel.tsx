@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   History, 
+  Database,
   ChevronRight, 
   Zap, 
   GitCommit, 
@@ -47,6 +48,7 @@ export function DebuggerPanel({ projectId, socket }: DebuggerPanelProps) {
     switch (type) {
       case 'ai:action': return <Zap className="w-3 h-3 text-yellow-500" />;
       case 'git:commit': return <GitCommit className="w-3 h-3 text-purple-500" />;
+      case 'git:import': return <Database className="w-3 h-3 text-green-500" />;
       case 'fs:change': return <FileCode className="w-3 h-3 text-blue-500" />;
       case 'runtime:error': return <AlertCircle className="w-3 h-3 text-red-500" />;
       case 'runtime:log': return <MessageSquare className="w-3 h-3 text-mimo-text-muted" />;
@@ -112,7 +114,8 @@ export function DebuggerPanel({ projectId, socket }: DebuggerPanelProps) {
 
               <div className="text-xs font-medium line-clamp-1 mb-1">
                 {event.type === 'ai:action' && `Executed ${event.payload.action}`}
-                {event.type === 'fs:change' && `FS: ${event.payload.event} at ${event.payload.path}`}
+                {event.type === 'fs:change' && `FS: ${event.payload.event} at ${event.payload.path || 'Workspace'}`}
+                {event.type === 'git:import' && `Imported ${event.payload.name}`}
                 {event.type === 'runtime:error' && `${event.payload.message}`}
                 {event.type === 'git:commit' && `Commit: ${event.gitRef.commit}`}
               </div>

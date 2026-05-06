@@ -143,39 +143,47 @@ export function FilesPanel({
       setIsLoading(false);
     }
   };
-
-  useEffect(() => {
-    const fetchFiles = async () => {
-      console.log(`[FilesPanel] Fetching files for ${projectId}...`);
-      try {
-        const res = await fetch(`/api/files/${projectId}`);
-        const data = await res.json();
-if (Array.isArray(data)) {
-  setFiles(data);
-} else if (Array.isArray(data.files)) {
-  setFiles(data.files);
-} else if (Array.isArray(data.data)) {
-  setFiles(data.data);
-} else {
-  console.error('[FilesPanel] Unexpected data format:', data);
-  setFiles([]);
-}
-      } catch (e) {
-        console.error('[FilesPanel] Fetch failed:', e);
+  
+  const fetchFiles = async () => {
+    console.log(`[FilesPanel] Fetching files for ${projectId}...`);
+    try {
+      const res = await fetch(`/api/files/${projectId}`);
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        console.log(`[FilesPanel] Received ${data.length} files`);
+        setFiles(data);
+      } else {
+        console.error('[FilesPanel] Unexpected data format:', data);
         setFiles([]);
       }
-    };
-    
+    } catch (e) {
+      console.error('[FilesPanel] Fetch failed:', e);
+      setFiles([]);
+    }
+  };
+
+  useEffect(() => {
     fetchFiles();
     fetchGitStatus();
 
     if (socket) {
-      socket.on('fs_event', () => {
-        fetchFiles();
-        fetchGitStatus();
+      let timeout: any;
+      const debouncedFetch = () => {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => {
+          fetchFiles();
+          fetchGitStatus();
+        }, 300);
+      };
+
+      socket.on('fs_event', (event: any) => {
+        console.log('[FilesPanel] Received fs_event:', event);
+        // Refresh on any relevant change, but debounced
+        debouncedFetch();
       });
       return () => {
         socket.off('fs_event');
+        clearTimeout(timeout);
       };
     }
   }, [projectId, socket]);
@@ -232,7 +240,7 @@ if (Array.isArray(data)) {
       // Refresh file list
       const res = await fetch(`/api/files/${projectId}`);
       const data = await res.json();
-      setFiles(data.files || data.data || data);
+      setFiles(data);
     } finally {
       setIsLoading(false);
     }
@@ -406,7 +414,10 @@ if (Array.isArray(data)) {
           </div>
           <div className="flex items-center gap-2">
             <button 
-              onClick={() => { fetchGitStatus(); }}
+              onClick={() => { 
+                fetchFiles();
+                fetchGitStatus(); 
+              }}
               className="p-1.5 hover:bg-white/5 rounded-lg text-mimo-text-muted transition-all"
               title="Refresh Status"
             >

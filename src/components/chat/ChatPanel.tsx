@@ -32,7 +32,7 @@ const BLDR_SYSTEM_PROMPT = `You are "bldr", an elite AI IDE assistant specializi
 - Use replace_in_file for localized edits (saves tokens).
 - Read files before modifying.
 - You operate in a workspace; assume paths are relative to root.
-- You can manage multiple repositories (microservices) within a single workspace.
+- Use get_ccc_status to verify system health and Structured Context.
 - Use run_shell to verify your changes (e.g., npm run lint, npm test).
 - Use generate_pr at the end of a task to summarize and especify deployment requirements.`;
 
@@ -370,7 +370,10 @@ export function ChatPanel({
         ]
       }];
 
-      const mimoTools: MiMoTool[] = tools[0].functionDeclarations.map(fd => ({
+      const uniqueDecls = tools[0].functionDeclarations.filter((v, i, a) => a.findIndex(t => t.name === v.name) === i);
+      console.log(`[ChatPanel] Final tools being sent:`, uniqueDecls.map(t => t.name));
+
+      const mimoTools: MiMoTool[] = uniqueDecls.map(fd => ({
         type: 'function',
         function: {
           name: fd.name,
@@ -394,13 +397,13 @@ Core Directive: EXECUTE, DO NOT JUST DESCRIBE.
 1. bldr is an execution engine. If you need to create, modify, or delete files, you MUST use the provided tools (write_file, replace_in_file, run_shell).
 2. DO NOT output code blocks in markdown if you should be writing them to files. 
 3. Always provide FULL file content when using write_file. 
-4. Reference CCC context (Structured Context) to maintain architectural integrity.
+4. Reference CCC context (Structured Context) via get_ccc_status to maintain architectural integrity.
 5. If Planning Mode is active, focus on discussion. If it is NOT active, proceed directly to execution.
 6. Verify all changes through analysis tools if available.`;
 
       const genConfig = {
         systemInstruction,
-        tools: tools as any
+        tools: [{ functionDeclarations: uniqueDecls }] as any
       };
 
       const currentActivities: any[] = [];
