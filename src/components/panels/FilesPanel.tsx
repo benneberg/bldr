@@ -150,13 +150,16 @@ export function FilesPanel({
       try {
         const res = await fetch(`/api/files/${projectId}`);
         const data = await res.json();
-        if (Array.isArray(data)) {
-          console.log(`[FilesPanel] Received ${data.length} files`);
-          setFiles(data);
-        } else {
-          console.error('[FilesPanel] Unexpected data format:', data);
-          setFiles([]);
-        }
+if (Array.isArray(data)) {
+  setFiles(data);
+} else if (Array.isArray(data.files)) {
+  setFiles(data.files);
+} else if (Array.isArray(data.data)) {
+  setFiles(data.data);
+} else {
+  console.error('[FilesPanel] Unexpected data format:', data);
+  setFiles([]);
+}
       } catch (e) {
         console.error('[FilesPanel] Fetch failed:', e);
         setFiles([]);
