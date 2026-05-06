@@ -232,7 +232,7 @@ if (Array.isArray(data)) {
       // Refresh file list
       const res = await fetch(`/api/files/${projectId}`);
       const data = await res.json();
-      setFiles(data);
+      setFiles(data.files || data.data || data);
     } finally {
       setIsLoading(false);
     }
