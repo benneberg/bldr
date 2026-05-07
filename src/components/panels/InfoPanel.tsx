@@ -28,12 +28,12 @@ export function InfoPanel({ onClose }: { onClose: () => void }) {
               </div>
             </div>
             <div className="flex gap-4">
-              <div className="w-8 h-8 rounded bg-purple-500/10 border border-purple-500/20 flex items-center justify-center shrink-0">
-                <Activity className="w-4 h-4 text-purple-400" />
+              <div className="w-8 h-8 rounded bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center shrink-0">
+                <TerminalIcon className="w-4 h-4 text-yellow-400" />
               </div>
               <div className="space-y-1">
-                <h4 className="text-xs font-bold">INTELLIGENT ROUTING</h4>
-                <p className="text-[10px] text-mimo-text-muted leading-relaxed">Swap between Gemini, MiMo, and OpenAI mid-session. Observe real-time latency and token analytics via the metadata toggles.</p>
+                <h4 className="text-xs font-bold">TOOL INSPECTOR (v1)</h4>
+                <p className="text-[10px] text-mimo-text-muted leading-relaxed">Real-time observability into AI reasoning, tool calls, and filesystem mutations. Access via the <span className="text-yellow-400">Inspector</span> tab.</p>
               </div>
             </div>
             <div className="flex gap-4">
@@ -41,8 +41,8 @@ export function InfoPanel({ onClose }: { onClose: () => void }) {
                 <Zap className="w-4 h-4 text-blue-400" />
               </div>
               <div className="space-y-1">
-                <h4 className="text-xs font-bold">KNOWLEDGE LAYERING (CCC)</h4>
-                <p className="text-[10px] text-mimo-text-muted leading-relaxed">The AI reads <span className="text-mimo-accent">WORKSPACE.md</span>, <span className="text-mimo-accent">LLM.md</span>, and <span className="text-mimo-accent">PKML.md</span> for perfect architectural alignment.</p>
+                <h4 className="text-xs font-bold">PLUGIN RUNTIME</h4>
+                <p className="text-[10px] text-mimo-text-muted leading-relaxed">A unified multimodal execution layer indexing MiMo, OpenAI, and System tools into a deterministic artifact store.</p>
               </div>
             </div>
           </div>
