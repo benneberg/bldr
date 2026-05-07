@@ -366,6 +366,28 @@ export function ChatPanel({
               },
               required: ['summary', 'changes']
             }
+          },
+          {
+            name: 'generate_image',
+            description: 'Generate an AI image based on a prompt via MiMo Multimodal Service.',
+            parameters: {
+              type: Type.OBJECT,
+              properties: {
+                prompt: { type: Type.STRING, description: 'Descriptive prompt for the image' }
+              },
+              required: ['prompt']
+            }
+          },
+          {
+            name: 'generate_video',
+            description: 'Generate an AI video based on a prompt via MiMo Multimodal Service.',
+            parameters: {
+              type: Type.OBJECT,
+              properties: {
+                prompt: { type: Type.STRING, description: 'Descriptive prompt for the video' }
+              },
+              required: ['prompt']
+            }
           }
         ]
       }];

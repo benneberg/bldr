@@ -23,13 +23,14 @@ import { InfoPanel } from './components/panels/InfoPanel';
 import { FileManagementMenu } from './components/panels/FileManagementMenu';
 import { DebuggerPanel } from './components/panels/DebuggerPanel';
 import { ToolInspector } from './components/ToolInspector';
+import { PluginOutputPanel } from './components/PluginOutputPanel';
 import { Project, Message } from './types';
 
 // Global socket instance
 let socket: Socket;
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'chat' | 'files' | 'preview' | 'arch' | 'debug' | 'inspector'>('chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'files' | 'preview' | 'arch' | 'debug' | 'inspector' | 'artifacts'>('chat');
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -477,6 +478,17 @@ export default function App() {
               <ToolInspector projectId={selectedProjectId!} />
             </motion.div>
           )}
+          {activeTab === 'artifacts' && (
+            <motion.div 
+              key="artifacts"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0"
+            >
+              <PluginOutputPanel sessionId="ai-session" />
+            </motion.div>
+          )}
         </AnimatePresence>
       </main>
 
@@ -516,6 +528,12 @@ export default function App() {
           onClick={() => setActiveTab('inspector')} 
           icon={<TerminalIcon />} 
           label="Inspector" 
+        />
+        <TabButton 
+          active={activeTab === 'artifacts'} 
+          onClick={() => setActiveTab('artifacts')} 
+          icon={<Layers />} 
+          label="Artifacts" 
         />
       </nav>
     </div>

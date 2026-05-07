@@ -1259,6 +1259,42 @@ app.post('/api/tools/rename_file', async (req, res) => {
   }
 });
 
+app.post('/api/tools/generate_image', async (req, res) => {
+  const { projectId, prompt, sessionId } = req.body;
+  try {
+    const artifact = await pluginRuntime.executeTool('mimo.multimodal', {
+      action: 'image.generate',
+      prompt
+    }, {
+      projectId,
+      sessionId: sessionId || 'ai-session',
+      workspacePath: WORKSPACE_ROOT,
+      runtime: { timestamp: Date.now(), environment: 'desktop' }
+    });
+    res.json({ success: true, artifactId: artifact.id });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/tools/generate_video', async (req, res) => {
+  const { projectId, prompt, sessionId } = req.body;
+  try {
+    const artifact = await pluginRuntime.executeTool('mimo.multimodal', {
+      action: 'video.generate',
+      prompt
+    }, {
+      projectId,
+      sessionId: sessionId || 'ai-session',
+      workspacePath: WORKSPACE_ROOT,
+      runtime: { timestamp: Date.now(), environment: 'desktop' }
+    });
+    res.json({ success: true, artifactId: artifact.id });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/tools/search_code', async (req, res) => {
   const { projectId, query, isRegex } = req.body;
   try {
