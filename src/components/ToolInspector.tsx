@@ -38,23 +38,26 @@ export const ToolInspector: React.FC<{ projectId: string; sessionId?: string }> 
     try {
       const response = await fetch(`/api/debug/events/${projectId}`);
       const text = await response.text();
+      
       if (!response.ok) {
+        if (response.status === 429 || text.toLowerCase().includes('rate')) {
+          console.warn('[ToolInspector] Rate limit detected. Throttling.');
+          return;
+        }
         throw new Error(`Server returned ${response.status}: ${text.slice(0, 100)}`);
       }
 
-      let data;
       try {
-        data = JSON.parse(text);
+        const data = JSON.parse(text);
+        if (Array.isArray(data)) {
+          setEvents(data.map((m: any) => ({
+            ...m,
+            payload: typeof m.payload === 'string' ? JSON.parse(m.payload) : m.payload,
+            metadata: typeof m.metadata === 'string' ? JSON.parse(m.metadata) : (m.metadata || {})
+          })));
+        }
       } catch (parseError) {
-        throw new Error(`Malformed JSON response: ${text.slice(0, 100)}`);
-      }
-
-      if (Array.isArray(data)) {
-        setEvents(data.map((m: any) => ({
-          ...m,
-          payload: typeof m.payload === 'string' ? JSON.parse(m.payload) : m.payload,
-          metadata: typeof m.metadata === 'string' ? JSON.parse(m.metadata) : (m.metadata || {})
-        })));
+        console.warn('[ToolInspector] Malformed JSON response:', text.slice(0, 50));
       }
     } catch (error: any) {
       console.error('[ToolInspector] Failed to fetch events:', error.message || error);

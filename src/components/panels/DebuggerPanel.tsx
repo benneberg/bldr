@@ -30,17 +30,21 @@ export function DebuggerPanel({ projectId, socket }: DebuggerPanelProps) {
       try {
         const res = await fetch(`/api/debug/events/${projectId}`);
         const text = await res.text();
+        
         if (!res.ok) {
+          if (res.status === 429 || text.toLowerCase().includes('rate')) {
+            console.warn('[Debugger] Rate limit detected. Polling throttled.');
+            return;
+          }
           throw new Error(`Server returned ${res.status}: ${text.slice(0, 100)}`);
         }
         
-        let data;
         try {
-          data = JSON.parse(text);
+          const data = JSON.parse(text);
+          setEvents(Array.isArray(data) ? data : []);
         } catch (parseError) {
-          throw new Error(`Malformed JSON response: ${text.slice(0, 100)}`);
+          console.warn('[Debugger] Malformed JSON response:', text.slice(0, 50));
         }
-        setEvents(Array.isArray(data) ? data : []);
       } catch (e: any) {
         console.error('[Debugger] Failed to fetch events:', e.message || e);
       }

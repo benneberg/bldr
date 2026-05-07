@@ -97,55 +97,48 @@ export function FilesPanel({
     }
   }, [selectedFile, socket]);
 
-  const fetchGitStatus = async () => {
+  const safeJsonFetch = async (url: string, options?: RequestInit, defaultValue: any = []) => {
     try {
-      const res = await fetch('/api/git/status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId })
-      });
-      
+      const res = await fetch(url, options);
       const text = await res.text();
+      
       if (!res.ok) {
+        if (res.status === 429 || text.toLowerCase().includes('rate')) {
+          console.warn('[FilesPanel] Rate limit or high load detected. Throttling back.');
+          return defaultValue;
+        }
         throw new Error(`Server returned ${res.status}: ${text.slice(0, 100)}`);
       }
 
-      console.log('[GitStatus] API RESPONSE:', text);
-      let data;
       try {
-        data = JSON.parse(text);
-      } catch (parseError) {
-        throw new Error(`Malformed JSON response: ${text.slice(0, 100)}`);
+        return JSON.parse(text);
+      } catch (e) {
+        console.warn(`[FilesPanel] Non-JSON response from ${url}:`, text.slice(0, 50));
+        return defaultValue;
       }
-
-      const statusMap: Record<string, any> = {};
-      data.files?.forEach((f: any) => {
-        statusMap[f.path] = f.status;
-      });
-      setGitStatus(statusMap);
     } catch (e: any) {
-      console.error('[GitStatus] Failed to fetch git status:', e.message || e);
+      console.error(`[FilesPanel] Fetch failed for ${url}:`, e.message || e);
+      return defaultValue;
     }
   };
 
+  const fetchGitStatus = async () => {
+    const data = await safeJsonFetch('/api/git/status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectId })
+    }, { files: [] });
+
+    const statusMap: Record<string, any> = {};
+    data.files?.forEach((f: any) => {
+      statusMap[f.path] = f.status;
+    });
+    setGitStatus(statusMap);
+  };
+
   const fetchGitignore = async () => {
-    try {
-      const res = await fetch(`/api/git/gitignore/${projectId}`);
-      const text = await res.text();
-      if (!res.ok) {
-        throw new Error(`Server returned ${res.status}: ${text.slice(0, 100)}`);
-      }
-      
-      let data;
-      try {
-        data = JSON.parse(text);
-      } catch (parseError) {
-        throw new Error(`Malformed JSON response: ${text.slice(0, 100)}`);
-      }
-      setGitignoreContent(data.content || '');
-    } catch (e: any) {
-      console.error('[Gitignore] Fetch failed:', e.message || e);
-    }
+    const data = await safeJsonFetch(`/api/git/gitignore/${projectId}`, {}, { content: '' });
+    setGitignoreContent(data.content || '');
   };
 
   const handleSaveGitignore = async () => {
@@ -173,33 +166,8 @@ export function FilesPanel({
   };
   
   const fetchFiles = async () => {
-    console.log(`[FilesPanel] Fetching files for ${projectId}...`);
-    try {
-      const res = await fetch(`/api/files/${projectId}`);
-      const text = await res.text();
-      
-      if (!res.ok) {
-        throw new Error(`Server returned ${res.status}: ${text.slice(0, 100)}`);
-      }
-
-      let data;
-      try {
-        data = JSON.parse(text);
-      } catch (parseError) {
-        throw new Error(`Malformed JSON response: ${text.slice(0, 100)}`);
-      }
-
-      if (Array.isArray(data)) {
-        console.log(`[FilesPanel] Received ${data.length} files`);
-        setFiles(data);
-      } else {
-        console.error('[FilesPanel] Unexpected data format:', data);
-        setFiles([]);
-      }
-    } catch (e: any) {
-      console.error('[FilesPanel] Fetch failed:', e.message || e);
-      setFiles([]);
-    }
+    const data = await safeJsonFetch(`/api/files/${projectId}`, {}, []);
+    setFiles(Array.isArray(data) ? data : []);
   };
 
   useEffect(() => {
@@ -213,7 +181,7 @@ export function FilesPanel({
         timeout = setTimeout(() => {
           fetchFiles();
           fetchGitStatus();
-        }, 2000);
+        }, 5000); // Increased to 5s to reduce load
       };
 
       socket.on('fs_event', (event: any) => {
