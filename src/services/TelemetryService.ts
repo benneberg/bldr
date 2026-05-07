@@ -21,7 +21,9 @@ export class TelemetryService {
       ...event
     };
 
-    console.log(`[${fullEvent.category}] ${fullEvent.type} - ${fullEvent.source}:`, JSON.stringify(fullEvent.payload));
+    if (fullEvent.category !== EventCategory.AUDIT) {
+      console.log(`[${fullEvent.category}] ${fullEvent.type} - ${fullEvent.source}:`, JSON.stringify(fullEvent.payload));
+    }
 
     // Persist to journal
     try {

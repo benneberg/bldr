@@ -1486,13 +1486,26 @@ app.post('/api/git/init', async (req, res) => {
 
 app.post('/api/git/status', async (req, res) => {
   const { projectId } = req.body;
+  if (!projectId || projectId.includes('..') || projectId.includes('/') || projectId.includes('\\')) {
+    return res.status(400).json({ error: 'Invalid projectId' });
+  }
   try {
     const projectDir = path.join(WORKSPACE_ROOT, projectId);
-    // --porcelain=v1 gives a stable, parser-friendly output
-    const { stdout } = await execAsync('git status --porcelain=v1', { cwd: projectDir });
-    
-    // Parse status lines: "XY PATH"
-    const files = stdout.split('\n').filter(l => l.trim()).map(line => {
+      // --porcelain=v1 gives a stable, parser-friendly output
+      let stdout = '';
+      try {
+        const res = await execAsync('git status --porcelain=v1', { cwd: projectDir });
+        stdout = res.stdout;
+      } catch (gitErr: any) {
+        if (gitErr.message.includes('not a git repository')) {
+          console.warn(`[GitStatus] Project ${projectId} is not a git repository.`);
+          return res.json({ files: [] });
+        }
+        throw gitErr;
+      }
+      
+      // Parse status lines: "XY PATH"
+      const files = stdout.split('\n').filter(l => l.trim()).map(line => {
       const x = line[0]; // Index status
       const y = line[1]; // Work tree status
       const path = line.slice(3);

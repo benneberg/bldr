@@ -12,7 +12,11 @@ import {
   Terminal as TerminalIcon,
   Layers,
   Box,
-  History
+  History,
+  Maximize2,
+  Minimize2,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { io, Socket } from 'socket.io-client';
@@ -46,7 +50,20 @@ export default function App() {
   const [healthStatus, setHealthStatus] = useState<{ status: 'healthy' | 'warning' | 'error', issues: string[] }>({ status: 'healthy', issues: [] });
   const [command, setCommand] = useState('');
   const [lastSync, setLastSync] = useState<number | null>(null);
+  const [isTerminalCollapsed, setIsTerminalCollapsed] = useState(false);
   const terminalRef = useRef<HTMLDivElement>(null);
+  const previewContainerRef = useRef<HTMLDivElement>(null);
+
+  const toggleFullscreen = () => {
+    if (!previewContainerRef.current) return;
+    if (!document.fullscreenElement) {
+      previewContainerRef.current.requestFullscreen().catch(err => {
+        console.error(`Error attempting to enable full-screen mode: ${err.message}`);
+      });
+    } else {
+      document.exitFullscreen();
+    }
+  };
 
   useEffect(() => {
     if (selectedProjectId) {
@@ -69,6 +86,10 @@ export default function App() {
             setHealthStatus({ status: 'healthy', issues: [] });
           }
         } catch (e: any) {
+          if (e.message?.includes('Rate exceeded')) {
+            console.warn('[HealthCheck] Throttled by control plane.');
+            return;
+          }
           console.error('[HealthCheck] Failed:', e.message || e);
           setHealthStatus({ status: 'error', issues: ['Health check failed to execute'] });
         }
@@ -369,6 +390,13 @@ export default function App() {
                       />
                     </div>
                     <button 
+                      onClick={toggleFullscreen}
+                      className="p-1.5 bg-mimo-accent/10 border border-mimo-accent/20 rounded-lg hover:bg-mimo-accent/20 transition-colors"
+                      title="Fullscreen"
+                    >
+                      <Maximize2 className="w-3 h-3 text-mimo-accent" />
+                    </button>
+                    <button 
                       onClick={() => {
                         const input = document.getElementById('preview-path-input') as HTMLInputElement;
                         const iframe = document.querySelector('iframe');
@@ -382,7 +410,10 @@ export default function App() {
                     </button>
                   </div>
 
-                  <div className="flex-1 bg-white rounded border border-mimo-border overflow-hidden relative shadow-inner">
+                  <div 
+                    ref={previewContainerRef}
+                    className="flex-1 bg-white rounded border border-mimo-border overflow-hidden relative shadow-inner group"
+                  >
                     <iframe 
                       src={`/api/proxy/${selectedProjectId}/`}
                       className="w-full h-full border-none"
@@ -390,61 +421,91 @@ export default function App() {
                       id="preview-iframe"
                       sandbox="allow-scripts allow-forms allow-same-origin"
                     />
-                    <div className="absolute top-2 right-2 px-2 py-0.5 bg-black/50 text-[8px] font-mono text-green-400 rounded backdrop-blur">
-                      LIVE
+                    <div className="absolute top-2 right-2 flex gap-2">
+                       <div className="px-2 py-0.5 bg-black/50 text-[8px] font-mono text-green-400 rounded backdrop-blur">
+                         LIVE
+                       </div>
+                       <button 
+                         onClick={toggleFullscreen}
+                         className="p-1 bg-black/50 text-white rounded backdrop-blur opacity-0 group-hover:opacity-100 transition-opacity"
+                       >
+                         {document.fullscreenElement ? <Minimize2 className="w-3 h-3" /> : <Maximize2 className="w-3 h-3" />}
+                       </button>
                     </div>
                   </div>
 
-                  <div className="flex-[2] bg-black m-3 sm:m-6 mt-4 rounded border border-mimo-border flex flex-col overflow-hidden min-h-[150px]">
-                     <div className="px-4 py-2 border-b border-mimo-border bg-black/50 flex items-center gap-2">
+                  <div className={`${isTerminalCollapsed ? 'h-10' : 'flex-[2] min-h-[150px]'} bg-black m-3 sm:m-6 mt-4 rounded border border-mimo-border flex flex-col overflow-hidden transition-all duration-300`}>
+                     <div 
+                       className="px-4 py-2 border-b border-mimo-border bg-black/50 flex items-center gap-2 cursor-pointer select-none"
+                       onClick={() => setIsTerminalCollapsed(!isTerminalCollapsed)}
+                     >
                        <TerminalIcon className="w-3 h-3 text-mimo-accent" />
                        <span className="text-[9px] font-mono uppercase tracking-widest text-mimo-text-muted font-bold">bldr-term-v1</span>
-                       <div className="ml-auto flex items-center gap-3">
-                         <div className="flex items-center gap-2">
-                            <button 
-                              onClick={() => {
-                                setCommand('npm install');
-                              }}
-                              className="text-[8px] font-mono text-mimo-text-muted hover:text-white transition-colors"
-                            >
-                              [INSTALL]
-                            </button>
-                            <button 
-                              onClick={() => {
-                                setCommand('npm run build');
-                              }}
-                              className="text-[8px] font-mono text-mimo-text-muted hover:text-white transition-colors"
-                            >
-                              [BUILD]
-                            </button>
+                       {!isTerminalCollapsed && (
+                         <div className="ml-4 flex items-center gap-3">
+                           <div className="flex items-center gap-2">
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setCommand('npm install');
+                                }}
+                                className="text-[8px] font-mono text-mimo-text-muted hover:text-white transition-colors"
+                              >
+                                [INSTALL]
+                              </button>
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setCommand('npm run build');
+                                }}
+                                className="text-[8px] font-mono text-mimo-text-muted hover:text-white transition-colors"
+                              >
+                                [BUILD]
+                              </button>
+                           </div>
+                           <div className="w-px h-3 bg-mimo-border" />
+                           <div className="flex items-center gap-1.5">
+                             <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                             <span className="text-[8px] font-mono text-mimo-text-muted">ACTIVE</span>
+                           </div>
                          </div>
-                         <div className="w-px h-3 bg-mimo-border" />
-                         <div className="flex items-center gap-1.5">
-                           <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                           <span className="text-[8px] font-mono text-mimo-text-muted">ACTIVE</span>
-                         </div>
+                       )}
+                       <div className="ml-auto flex items-center gap-2">
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setIsTerminalCollapsed(!isTerminalCollapsed);
+                            }}
+                            className="p-1 hover:bg-white/10 rounded transition-colors"
+                          >
+                            {isTerminalCollapsed ? <ChevronUp className="w-3 h-3 text-mimo-text-muted" /> : <ChevronDown className="w-3 h-3 text-mimo-text-muted" />}
+                          </button>
                        </div>
                      </div>
-                     <div 
-                       ref={terminalRef}
-                       className="flex-1 overflow-y-auto p-4 font-mono text-[10px] text-green-500/90 space-y-1 selection:bg-green-500/20"
-                     >
-                       {terminalOutput.map((line, i) => (
-                         <div key={i} className="whitespace-pre-wrap break-all border-l border-green-500/10 pl-2">
-                           {line}
+                     {!isTerminalCollapsed && (
+                       <>
+                         <div 
+                           ref={terminalRef}
+                           className="flex-1 overflow-y-auto p-4 font-mono text-[10px] text-green-500/90 space-y-1 selection:bg-green-500/20"
+                         >
+                           {terminalOutput.map((line, i) => (
+                             <div key={i} className="whitespace-pre-wrap break-all border-l border-green-500/10 pl-2">
+                               {line}
+                             </div>
+                           ))}
                          </div>
-                       ))}
-                     </div>
-                     <form onSubmit={handleRunCommand} className="p-3 bg-black/50 border-t border-mimo-border flex items-center gap-3">
-                       <span className="text-mimo-accent font-bold">$</span>
-                       <input 
-                         type="text" 
-                         value={command}
-                         onChange={(e) => setCommand(e.target.value)}
-                         placeholder="npm run dev..."
-                         className="flex-1 bg-transparent border-none focus:outline-none text-[10px] font-mono text-white placeholder:text-white/20"
-                       />
-                     </form>
+                         <form onSubmit={handleRunCommand} className="p-3 bg-black/50 border-t border-mimo-border flex items-center gap-3">
+                           <span className="text-mimo-accent font-bold">$</span>
+                           <input 
+                             type="text" 
+                             value={command}
+                             onChange={(e) => setCommand(e.target.value)}
+                             placeholder="npm run dev..."
+                             className="flex-1 bg-transparent border-none focus:outline-none text-[10px] font-mono text-white placeholder:text-white/20"
+                           />
+                         </form>
+                       </>
+                     )}
                   </div>
                </div>
             </motion.div>

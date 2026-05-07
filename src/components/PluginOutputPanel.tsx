@@ -61,12 +61,17 @@ export const PluginOutputPanel: React.FC<{ sessionId: string }> = ({ sessionId }
         if (artifact.type === 'image' && typeof artifact.data === 'string') {
           // Map broken via.placeholder.com to placehold.co
           if (artifact.data.includes('via.placeholder.com')) {
-            const match = artifact.data.match(/via\.placeholder\.com\/(\d+)(?:\/(\w+))?(?:\/(\w+))?(?:\?text=(.*))?/);
-            if (match) {
-              const size = match[1] || '512';
-              const text = match[4] || 'Image+Artifact';
-              artifact.data = `https://placehold.co/${size}x${size}/111/fff?text=${text}`;
-            } else {
+            try {
+              const match = artifact.data.match(/via\.placeholder\.com\/(\d+)(?:\/(\w+))?(?:\/(\w+))?(?:\?text=(.*))?/);
+              if (match && match[1]) {
+                const size = match[1] || '512';
+                const text = match[4] || 'Image+Artifact';
+                artifact.data = `https://placehold.co/${size}x${size}/111/fff?text=${text}`;
+              } else {
+                artifact.data = artifact.data.replace('via.placeholder.com', 'placehold.co');
+              }
+            } catch (regexError) {
+              console.warn('[PluginOutput] Regex failure on artifact data:', regexError);
               artifact.data = artifact.data.replace('via.placeholder.com', 'placehold.co');
             }
           }
