@@ -20,6 +20,11 @@ import compression from 'compression';
 import { CCCService } from './src/services/cccService.js';
 import { TelemetryService } from './src/services/TelemetryService.js';
 import { WorkspaceMutationService } from './src/services/WorkspaceMutationService.js';
+import { PluginRuntime } from './src/services/PluginRuntime.js';
+import { MiMoAdapter } from './src/services/MiMoAdapter.js';
+import { InspectorService } from './src/services/InspectorService.js';
+import { FilesystemPlugin } from './src/services/plugins/FilesystemPlugin.js';
+import { MiMoPlugin } from './src/services/plugins/MiMoPlugin.js';
 import { EventCategory, DomainEventType } from './src/types/events.js';
 import { PROVIDERS, MODELS } from './src/lib/providers.js';
 
@@ -35,16 +40,21 @@ const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : __d
 const DB_PATH = path.join(DATA_DIR, 'mimo.db');
 const WORKSPACE_ROOT = path.join(DATA_DIR, 'workspace');
 const UPLOADS_ROOT = path.join(DATA_DIR, 'uploads');
+const ARTIFACTS_ROOT = path.join(DATA_DIR, 'artifacts');
 
 console.log('--- Storage Configuration ---');
 console.log('__dirname:', __dirname);
 console.log('DATA_DIR:', DATA_DIR);
 console.log('WORKSPACE_ROOT:', WORKSPACE_ROOT);
+console.log('ARTIFACTS_ROOT:', ARTIFACTS_ROOT);
 console.log('-----------------------------');
 
 const ccc = new CCCService(WORKSPACE_ROOT);
 let telemetry: TelemetryService;
 let mutationService: WorkspaceMutationService;
+let pluginRuntime: PluginRuntime;
+let inspectorService: InspectorService;
+let mimoAdapter: MiMoAdapter;
 
 // Ensure directories exist
 const ensureDir = async (dir: string) => {
@@ -58,6 +68,7 @@ const ensureDir = async (dir: string) => {
 
 await ensureDir(WORKSPACE_ROOT);
 await ensureDir(UPLOADS_ROOT);
+await ensureDir(ARTIFACTS_ROOT);
 
 // Database Setup
 console.log(`Initializing database at ${DB_PATH}`);
@@ -138,9 +149,47 @@ db.exec(`
     ccc_tier INTEGER,
     replayable INTEGER,
     payload TEXT,
+    metadata TEXT,
+    causation_id TEXT,
+    correlation_id TEXT,
     FOREIGN KEY(project_id) REFERENCES projects(id)
   );
+
+  CREATE TABLE IF NOT EXISTS artifacts (
+    id TEXT PRIMARY KEY,
+    session_id TEXT,
+    type TEXT,
+    source TEXT,
+    data TEXT,
+    metadata TEXT,
+    created_at INTEGER
+  );
+
+  CREATE TABLE IF NOT EXISTS tool_traces (
+    id TEXT PRIMARY KEY,
+    session_id TEXT,
+    event_type TEXT,
+    input TEXT,
+    output TEXT,
+    correlation_id TEXT,
+    timestamp INTEGER
+  );
+
+  CREATE TABLE IF NOT EXISTS fs_mutations (
+    id TEXT PRIMARY KEY,
+    session_id TEXT,
+    path TEXT,
+    diff TEXT,
+    hash_before TEXT,
+    hash_after TEXT,
+    timestamp INTEGER
+  );
 `);
+
+// Migrations for existing deployments
+try { db.prepare('ALTER TABLE debug_events ADD COLUMN metadata TEXT').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE debug_events ADD COLUMN causation_id TEXT').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE debug_events ADD COLUMN correlation_id TEXT').run(); } catch (e) {}
 
 // Migrations for schema evolution
 function applyMigrations() {
@@ -468,6 +517,26 @@ app.get('/api/debug/events', async (req, res) => {
     db.prepare('SELECT * FROM debug_events WHERE project_id = ? ORDER BY timestamp DESC LIMIT 50').all(projectId) :
     db.prepare('SELECT * FROM debug_events ORDER BY timestamp DESC LIMIT 50').all();
   res.json(query);
+});
+
+app.get('/api/inspector/traces', async (req, res) => {
+  const { sessionId } = req.query;
+  try {
+    const traces = await inspectorService.getSessionTraces(sessionId as string);
+    res.json(traces);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/inspector/artifacts', async (req, res) => {
+  const { sessionId } = req.query;
+  try {
+    const artifacts = await inspectorService.getArtifacts(sessionId as string);
+    res.json(artifacts);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get('/api/debug/metrics', async (req, res) => {
@@ -1135,19 +1204,19 @@ app.post('/api/tools/read_file', async (req, res) => {
 
 app.post('/api/tools/write_file', async (req, res) => {
   const { projectId, path: filePath, content, sessionId } = req.body;
-  console.log(`[write_file] Project: ${projectId}, Path: ${filePath}, Content length: ${content?.length || 0}`);
   try {
-    const event = await mutationService.executeMutation({
+    const artifact = await pluginRuntime.executeTool('system.filesystem', {
+      action: 'write',
+      path: filePath,
+      content
+    }, {
       projectId,
       sessionId: sessionId || 'ai-session',
-      actor: 'ai',
-      type: 'write',
-      path: filePath,
-      content,
-      metadata: { correlationId: uuidv4() }
+      workspacePath: WORKSPACE_ROOT,
+      runtime: { timestamp: Date.now(), environment: 'desktop' }
     });
 
-    res.json({ success: true, eventId: event.eventId });
+    res.json({ success: true, artifactId: artifact.id });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -1156,15 +1225,16 @@ app.post('/api/tools/write_file', async (req, res) => {
 app.post('/api/tools/delete_file', async (req, res) => {
   const { projectId, path: filePath, sessionId } = req.body;
   try {
-    const event = await mutationService.executeMutation({
+    const artifact = await pluginRuntime.executeTool('system.filesystem', {
+      action: 'delete',
+      path: filePath
+    }, {
       projectId,
       sessionId: sessionId || 'ai-session',
-      actor: 'ai',
-      type: 'delete',
-      path: filePath,
-      metadata: { correlationId: uuidv4() }
+      workspacePath: WORKSPACE_ROOT,
+      runtime: { timestamp: Date.now(), environment: 'desktop' }
     });
-    res.json({ success: true, eventId: event.eventId });
+    res.json({ success: true, artifactId: artifact.id });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -1173,16 +1243,17 @@ app.post('/api/tools/delete_file', async (req, res) => {
 app.post('/api/tools/rename_file', async (req, res) => {
   const { projectId, path: oldPath, newPath, sessionId } = req.body;
   try {
-    const event = await mutationService.executeMutation({
+    const artifact = await pluginRuntime.executeTool('system.filesystem', {
+      action: 'rename',
+      path: oldPath,
+      newPath
+    }, {
       projectId,
       sessionId: sessionId || 'ai-session',
-      actor: 'ai',
-      type: 'rename',
-      path: oldPath,
-      newPath,
-      metadata: { correlationId: uuidv4() }
+      workspacePath: WORKSPACE_ROOT,
+      runtime: { timestamp: Date.now(), environment: 'desktop' }
     });
-    res.json({ success: true, eventId: event.eventId });
+    res.json({ success: true, artifactId: artifact.id });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -1541,6 +1612,13 @@ async function startServer() {
 
   telemetry = new TelemetryService(db, io);
   mutationService = new WorkspaceMutationService(db, io, ccc, telemetry, WORKSPACE_ROOT);
+  mimoAdapter = new MiMoAdapter();
+  pluginRuntime = new PluginRuntime(telemetry, db);
+  inspectorService = new InspectorService(db);
+
+  // Register default plugins
+  pluginRuntime.registerPlugin(new FilesystemPlugin(mutationService));
+  pluginRuntime.registerPlugin(new MiMoPlugin(mimoAdapter));
 
   // Watcher Initialization
   const watcher = chokidar.watch(WORKSPACE_ROOT, {

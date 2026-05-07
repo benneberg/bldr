@@ -26,8 +26,8 @@ export class TelemetryService {
     // Persist to journal
     try {
       this.db.prepare(`
-        INSERT INTO debug_events (id, timestamp, session_id, project_id, type, payload, replayable)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO debug_events (id, timestamp, session_id, project_id, type, payload, replayable, metadata, causation_id, correlation_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         fullEvent.eventId,
         fullEvent.timestamp,
@@ -35,7 +35,10 @@ export class TelemetryService {
         fullEvent.projectId,
         fullEvent.type,
         JSON.stringify(fullEvent.payload),
-        fullEvent.replayable ? 1 : 0
+        fullEvent.replayable ? 1 : 0,
+        JSON.stringify(fullEvent.metadata || {}),
+        fullEvent.causationId || null,
+        fullEvent.correlationId || null
       );
     } catch (err) {
       console.error('Failed to persist telemetry event:', err);
