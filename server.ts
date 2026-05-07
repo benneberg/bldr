@@ -216,6 +216,7 @@ applyMigrations();
 const app = express();
 app.use(compression());
 app.use(express.json());
+app.use('/artifacts', express.static(ARTIFACTS_ROOT));
 
 // Logger middleware
 app.use((req, res, next) => {

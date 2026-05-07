@@ -10,12 +10,11 @@ export class MiMoAdapter {
 
   async generateImage(prompt: string): Promise<PluginArtifact> {
     console.log(`[MiMoAdapter] Generating image for prompt: ${prompt}`);
-    // In a real implementation, this would call a multimodal model
     return {
       id: uuidv4(),
       type: "image",
       source: "mimo",
-      data: `https://via.placeholder.com/512?text=${encodeURIComponent(prompt)}`,
+      data: `https://picsum.photos/seed/${encodeURIComponent(prompt)}/800/600`,
       metadata: {
         prompt,
         model: "mimo-v1-vision",
@@ -36,7 +35,7 @@ export class MiMoAdapter {
       id: uuidv4(),
       type: "video",
       source: "mimo",
-      data: "https://www.w3schools.com/html/mov_bbb.mp4",
+      data: "https://vjs.zencdn.net/v/oceans.mp4",
       metadata: {
         prompt,
         model: "mimo-v1-video",

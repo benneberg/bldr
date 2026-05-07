@@ -11,6 +11,7 @@ import {
   Activity,
   Terminal as TerminalIcon,
   Layers,
+  Box,
   History
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -532,7 +533,7 @@ export default function App() {
         <TabButton 
           active={activeTab === 'artifacts'} 
           onClick={() => setActiveTab('artifacts')} 
-          icon={<Layers />} 
+          icon={<Box />} 
           label="Artifacts" 
         />
       </nav>

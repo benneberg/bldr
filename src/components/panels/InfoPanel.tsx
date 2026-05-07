@@ -45,6 +45,15 @@ export function InfoPanel({ onClose }: { onClose: () => void }) {
                 <p className="text-[10px] text-mimo-text-muted leading-relaxed">A unified multimodal execution layer indexing MiMo, OpenAI, and System tools into a deterministic artifact store.</p>
               </div>
             </div>
+            <div className="flex gap-4">
+              <div className="w-8 h-8 rounded bg-purple-500/10 border border-purple-500/20 flex items-center justify-center shrink-0">
+                <Activity className="w-4 h-4 text-purple-400" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="text-xs font-bold">ARTIFACT GALLERY</h4>
+                <p className="text-[10px] text-mimo-text-muted leading-relaxed">View generated images, videos, and files in the <span className="text-purple-400">Artifacts</span> tab. Optimized for mobile inspection with dedicated dual-view tabs.</p>
+              </div>
+            </div>
           </div>
         </section>
 
