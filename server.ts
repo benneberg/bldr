@@ -532,10 +532,17 @@ app.get('/api/inspector/traces', async (req, res) => {
 
 app.get('/api/inspector/artifacts', async (req, res) => {
   const { sessionId } = req.query;
+  if (!sessionId) {
+    return res.status(400).json({ error: 'sessionId is required' });
+  }
+  
   try {
+    console.log(`[Inspector] Fetching artifacts for session: ${sessionId}`);
     const artifacts = await inspectorService.getArtifacts(sessionId as string);
+    console.log(`[Inspector] Found ${artifacts.length} artifacts`);
     res.json(artifacts);
   } catch (err: any) {
+    console.error(`[Inspector] Error fetching artifacts:`, err);
     res.status(500).json({ error: err.message });
   }
 });

@@ -24,11 +24,27 @@ export class InspectorService {
       ORDER BY created_at ASC
     `).all(sessionId);
 
-    return artifacts.map((a: any) => ({
-      ...a,
-      data: JSON.parse(a.data),
-      metadata: JSON.parse(a.metadata)
-    }));
+    return artifacts.map((a: any) => {
+      let parsedData = a.data;
+      try {
+        parsedData = JSON.parse(a.data);
+      } catch (e) {
+        console.warn(`[InspectorService] Failed to parse artifact data for ${a.id}:`, e);
+      }
+
+      let parsedMetadata = a.metadata;
+      try {
+        parsedMetadata = JSON.parse(a.metadata);
+      } catch (e) {
+        console.warn(`[InspectorService] Failed to parse artifact metadata for ${a.id}:`, e);
+      }
+
+      return {
+        ...a,
+        data: parsedData,
+        metadata: parsedMetadata
+      };
+    });
   }
 
   async getMutationHistory(projectId: string) {
