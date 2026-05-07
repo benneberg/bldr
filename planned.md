@@ -54,202 +54,194 @@ FS Watcher Refactor
 
 ⸻
 
-🧠 Phase 6.5 — CCC Embedded Runtime (CRITICAL ARCHITECTURAL SHIFT)
+🧠 Phase 1 — CCC Runtime Integration (IN PROGRESS)
 
-CCC is no longer a CLI tool. It is now a runtime cognition subsystem inside bldr.
+CCC Role Definition (IMPORTANT)
 
-⸻
+CCC is a deterministic code understanding engine, not a system controller.
 
-CCC Runtime Service (NEW SYSTEM CORE)
+CCC IS responsible for:
 
-* Introduce Python FastAPI service: ccc-runtime
-* Deploy as Railway sidecar service
-* Shared volume mount:
-    * /app/data
-    * .llm-context
-    * workspace artifacts
+* symbol extraction
+* dependency graphs
+* route indexing
+* query engine
+* alignment validation
+* incremental codebase analysis
 
-CCC Runtime API (Internal Only)
+CCC is NOT responsible for:
 
-* POST /compile
-* POST /quick-update
-* POST /workspace/generate
-* POST /workspace/discover
-* POST /align
-* GET /query
-* GET /artifacts/*
-* GET /stats
-
-CCC Execution Model Evolution
-
-Phase 6.5A — CLI Bridge (Current Temporary State)
-
-* Node.js CCCService wrapper using exec("ccc ...")
-* Replace all CLI usage with internal service calls
-
-Phase 6.5B — Runtime Integration (Target State)
-
-* Replace subprocess execution with:
-
-import { generateContext } from "ccc/generator"
+* orchestration
+* mutation execution
+* AI decision making
+* git operations
 
 ⸻
 
-🧠 Phase 6.6 — CCC Internal Architecture (IR LAYER)
+Architecture Split
 
-Core Runtime Objects (IN MEMORY, NOT FILES)
+bldr (Node runtime)
 
-* Symbol Graph (live)
-* Dependency DAG (incremental)
-* Route Registry (live API map)
-* Workspace Topology Graph
-* Artifact Cache Layer
+* product runtime
+* AI orchestration
+* mutation authority
+* UI / mobile IDE
+* git workflows
+* sandbox execution
 
-Incremental Compilation Engine
+CCC runtime (Python service)
 
-* File-change → affected-symbol propagation
-* Dependency-aware partial recompilation
-* Artifact-level invalidation (not full scan)
-* Coalesced mutation batching (queue-based)
+* code analysis engine
+* graph + symbol system
+* query engine
+* deterministic context generation
 
 ⸻
 
-⚙️ Phase 6.7 — Event-Driven CCC Integration
+Communication Model
 
-Event Hooks (CCC → bldr)
+All CCC access goes through:
 
-* fs:file.changed → CCC incremental queue
-* ccc:compile.started
-* ccc:artifact.updated
-* ccc:alignment.completed
-* git:session.created
-* ai:operation.completed
+HTTP API (no CLI execution)
 
-Flow Model
+⸻
 
-File Mutation
+CCC Integration Flow
+
+User Action
    ↓
-WorkspaceMutationService
+bldr MutationAuthority
    ↓
 RuntimeEvent emitted
    ↓
-CCC Queue
+CCC runtime API call
    ↓
-Incremental Compilation
+Incremental analysis
    ↓
-Artifact Update
+Artifacts updated (.llm-context)
    ↓
-Telemetry + UI Update
+AI context refreshed
+
+⸻
+
+📦 Phase 2 — AI Development Workflow Engine (CORE PRODUCT)
+
+Primary User Workflow
+
+1. Intent → Spec
+
+* user provides PRD.md
+* AI generates open-specs.md
+
+2. Spec → Codebase
+
+* multi-repo scaffold generation
+* service + frontend + API structure
+
+3. Continuous Evolution
+
+* refactor code
+* add features
+* security reviews
+* architecture improvements
+
+⸻
+
+🧠 Phase 3 — CCC-Aware Context System
+
+CCC is used ONLY for:
+
+* context injection
+* dependency awareness
+* impact analysis
+* symbol lookup
+
+⸻
+
+AI Context Flow
+
+User Request
    ↓
-AI Context Invalidation
+CCC query (symbol / route / impact)
+   ↓
+Context assembly
+   ↓
+LLM prompt injection
+   ↓
+Code generation / refactor
 
 ⸻
 
-🔁 Phase 6.8 — Deterministic Replay System (CHD EVOLUTION)
+📱 Phase 4 — Mobile-First Development UX
 
-Replay Model Upgrade
+Core Principle
 
-* Every mutation assigned:
-    * artifact_generation_id
-    * workspace_hash
-    * dependency_graph_hash
-    * symbol_graph_hash
+“IDE designed for thumbs, not keyboards”
 
-Replay Engine
+Features
 
-* SQLite journal → full system reconstruction
-* Event stream + artifact snapshot pairing
-* Deterministic rebuild of entire workspace state
-
-⸻
-
-⚡ Phase 6.9 — CCC Worker Queue System
-
-Execution Control
-
-* Introduce mutation queue layer:
-    * PQueue / BullMQ (initial)
-* Single worker runtime (Phase 1)
-* Coalescing of FS events (debounce windows)
-* Priority-based compilation scheduling
-
-Critical Rule
-
-* ❌ No inline compilation in API request cycle
-* ✔ All CCC operations are async + queued
+* chat-first interface
+* swipe-based diffs
+* block approvals
+* gesture-driven actions
+* voice input (future)
+* live sandbox preview
 
 ⸻
 
-🧾 Phase 7 — Mobile UX & Intelligence (ACTIVE)
+🧪 Phase 5 — Sandbox Execution Layer
 
-* Multi-provider AI support (Gemini, MiMo, OpenAI)
-* Real-time AI metrics + metadata
-* Mobile-first UI (portrait optimized)
-
-In Progress
-
-* Voice input system
-* Block-based approvals UX refinement
-* Intent-based branching sandbox mode
-* Thumb-zone gesture optimization
+* React sandbox runtime
+* Python execution sandbox
+* safe AI execution layer
+* real-time preview system
 
 ⸻
 
-🛡 Phase 8 — Stability & Infrastructure Hardening
+🛡 Phase 6 — System Stability Layer
 
-* WebContainers sandbox integration
-* Asset preview system (images/videos/code diffs)
-* Automatic dependency graph visualization (live CCC graph)
-* Backpressure handling for mutation spikes
-* Queue overflow protection + throttling policies
-
-⸻
-
-🔗 Phase 9 — Production Sync Layer
-
-* GitHub PR export system (fully automated)
-* Conflict locking mechanism (multi-agent safety)
-* Environment variable secret manager
-* CI integration with CCC alignment gate
+* WebContainers integration
+* secret management system
+* dependency graph visualization
+* mutation locking system
 
 ⸻
 
-🧩 Phase 10 — CCC First-Class Runtime Promotion (FINAL TARGET STATE)
+🔗 Phase 7 — Git + Production Integration
 
-This is the architectural end state.
-
-CCC becomes:
-
-* ✔ Deterministic runtime cognition engine
-* ✔ In-memory semantic graph system
-* ✔ Workspace truth layer (not filesystem scans)
-* ✔ AI context compiler (not CLI tool)
-* ✔ Replayable computation layer
-
-bldr becomes:
-
-* Runtime orchestrator
-* Event-driven mutation system
-* AI execution environment
-* CCC consumer (not controller)
+* PR generation system
+* multi-repo commit orchestration
+* CI integration
+* rollback system
 
 ⸻
 
-🚨 Critical Architectural Rule (NON-NEGOTIABLE)
+🧠 Phase 8 — CCC Maturity (FREEZE ZONE)
 
-The filesystem is no longer the source of intelligence.
+CCC evolves ONLY in:
 
-It is only:
+* performance improvements
+* caching optimization
+* graph accuracy
+* incremental computation
 
-* persistence layer
-* snapshot layer
-* replay substrate
+❌ No feature expansion beyond analysis
 
-Truth lives in:
+⸻
 
-* CCC IR graph
-* Runtime event stream
-* Mutation authority system
+🚨 Core Architectural Principle
+
+bldr is the system. CCC is a subsystem.
+
+⸻
+
+System Hierarchy
+
+1. User Intent (chat / PRD / UI)
+2. bldr runtime (orchestrator)
+3. AI reasoning layer
+4. CCC analysis layer
+5. filesystem (persistence only)
 
 ⸻
 
