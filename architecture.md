@@ -9,10 +9,12 @@ Client (Mobile/Web)
    ↕ SSE/WebSocket (Socket.io)
 Express Server
    ├─ Event Bus (Central emitter)
+   ├─ WorkspaceMutationService (Authoritative mutations)
+   ├─ TelemetryService (Structured observability)
    ├─ CCC Engine (Tiered context generation)
    ├─ Git Manager (Session branching)
-   ├─ chokidar (FS watcher for real-time sync)
-   └─ SQLite (Project registry + vector-ish search)
+   ├─ chokidar (FS watcher - Passive observer)
+   └─ SQLite (Project registry + audit journal)
         ↕
       Filesystem
         ↕
@@ -29,10 +31,10 @@ Express Server
 * **Undo/Redo** is handled via native `git reset` commands.
 * **Publishing** changes involves generating a GitHub Pull Request, keeping the development cycle deterministic and integrated with standard CI/CD.
 
-### 2. FS ↔ DB Sync
-* A **chokidar**-based watcher monitors the workspace filesystem with a debounce queue.
-* Batch updates trigger the **CCC queue**, ensuring that the AI's internal model (`WORKSPACE.md`, `LLM.md`) is never out of sync with the disk.
-* **Filesystem always wins** in cases of conflict.
+### 2. Mutation Authority
+* The **WorkspaceMutationService** is the only layer allowed to mutate the filesystem.
+* Metadata and state are derivative; the **Filesystem always wins** as the source of truth for code.
+* **chokidar** is a passive observer, used only for synchronizing metadata and detecting external changes.
 
 ### 3. AI Safety & Scoping
 * AI writes are scoped per repository and restricted from path traversal.
@@ -49,9 +51,9 @@ Monitored registry of all tracked assets.
 * `project_id`, `path`, `size`, `hash`, `modified_at`.
 * Includes SHA-256 hashing for integrity checks.
 
-### `debug_events` (CHD Journal)
-* `id`, `parent_id`, `timestamp`, `session_id`, `project_id`, `type`, `branch`, `commit_hash`, `ccc_tier`, `replayable`, `payload`.
-* Provides the source of truth for the Causal History Debugger.
+### `debug_events` (Audit Journal)
+* `id`, `causation_id`, `correlation_id`, `timestamp`, `session_id`, `project_id`, `type`, `payload`, `replayable`, `metadata`.
+* Provides a deterministic source of truth for causal history reconstruction and replay.
 
 ## 🧠 CCC Protocol (AI Memory System)
 

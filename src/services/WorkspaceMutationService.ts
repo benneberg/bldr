@@ -21,6 +21,7 @@ export interface MutationIntent {
   content?: string;
   newPath?: string;
   metadata?: any;
+  skipCCC?: boolean;
 }
 
 export class WorkspaceMutationService {
@@ -108,7 +109,10 @@ export class WorkspaceMutationService {
     }
 
     // CCC Invalidation
-    const cccResult = await this.ccc.run(projectId);
+    let cccResult = null;
+    if (!intent.skipCCC) {
+      cccResult = await this.ccc.run(projectId);
+    }
 
     // Create Domain Event
     const event: RuntimeEvent = {

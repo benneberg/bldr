@@ -315,7 +315,6 @@ async function generateProjectContext(projectId: string) {
 
   workspaceContext += `\n## Global File Tree\n\n`;
   
-  // Simple tree representation
   const tree: any = {};
   files.forEach(f => {
     const parts = f.path.split('/');
@@ -343,8 +342,9 @@ async function generateProjectContext(projectId: string) {
   workspaceContext += renderTree(tree);
   
   // Bootstrap LLM.md (Architectural/Coding Conventions) if it doesn't exist
-  const llmPath = path.join(projectDir, 'LLM.md');
-  if (!existsSync(llmPath)) {
+  const llmRelPath = 'LLM.md';
+  const llmFullPath = path.join(projectDir, llmRelPath);
+  if (!existsSync(llmFullPath)) {
     let llmContent = `# Architectural Conventions (LLM.md)\n\n`;
     llmContent += `## Tech Stack\n`;
     
@@ -358,9 +358,15 @@ async function generateProjectContext(projectId: string) {
 
     llmContent += `\n## Development Guidelines\n- Prefer functional components and hooks.\n- Use Tailwind CSS for styling.\n- Maintain type safety for all new modules.\n`;
     
-    await fs.writeFile(llmPath, llmContent);
-    db.prepare('INSERT OR REPLACE INTO files (project_id, path, size) VALUES (?, ?, ?)')
-      .run(projectId, 'LLM.md', llmContent.length);
+    await mutationService.executeMutation({
+      projectId,
+      sessionId: 'system-bootstrap',
+      actor: 'system',
+      type: 'write',
+      path: llmRelPath,
+      content: llmContent,
+      skipCCC: true
+    });
   }
 
   // Create per-repo artifacts if it's a workspace
@@ -385,18 +391,27 @@ async function generateProjectContext(projectId: string) {
       }
     }
     
-    const repoCtxPath = path.join(projectDir, repo.path_prefix, 'CONTEXT.md');
-    const repoDir = path.dirname(repoCtxPath);
-    if (!existsSync(repoDir)) await fs.mkdir(repoDir, { recursive: true });
-    await fs.writeFile(repoCtxPath, repoCtx);
+    const repoCtxRelPath = path.join(repo.path_prefix || '', 'CONTEXT.md');
+    await mutationService.executeMutation({
+      projectId,
+      sessionId: 'system-bootstrap',
+      actor: 'system',
+      type: 'write',
+      path: repoCtxRelPath,
+      content: repoCtx,
+      skipCCC: true
+    });
   }
 
-  const workspacePath = path.join(projectDir, 'WORKSPACE.md');
-  await fs.writeFile(workspacePath, workspaceContext);
-  
-  // Register artifacts in DB
-  db.prepare('INSERT OR REPLACE INTO files (project_id, path, size) VALUES (?, ?, ?)')
-    .run(projectId, 'WORKSPACE.md', workspaceContext.length);
+  await mutationService.executeMutation({
+    projectId,
+    sessionId: 'system-bootstrap',
+    actor: 'system',
+    type: 'write',
+    path: 'WORKSPACE.md',
+    content: workspaceContext,
+    skipCCC: true
+  });
 }
 
 function sanitizePath(projectId: string, userPath: string) {
@@ -1132,6 +1147,41 @@ app.post('/api/tools/write_file', async (req, res) => {
       metadata: { correlationId: uuidv4() }
     });
 
+    res.json({ success: true, eventId: event.eventId });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/tools/delete_file', async (req, res) => {
+  const { projectId, path: filePath, sessionId } = req.body;
+  try {
+    const event = await mutationService.executeMutation({
+      projectId,
+      sessionId: sessionId || 'ai-session',
+      actor: 'ai',
+      type: 'delete',
+      path: filePath,
+      metadata: { correlationId: uuidv4() }
+    });
+    res.json({ success: true, eventId: event.eventId });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/tools/rename_file', async (req, res) => {
+  const { projectId, path: oldPath, newPath, sessionId } = req.body;
+  try {
+    const event = await mutationService.executeMutation({
+      projectId,
+      sessionId: sessionId || 'ai-session',
+      actor: 'ai',
+      type: 'rename',
+      path: oldPath,
+      newPath,
+      metadata: { correlationId: uuidv4() }
+    });
     res.json({ success: true, eventId: event.eventId });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

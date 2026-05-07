@@ -4,12 +4,10 @@
 
 ## 🚀 Core Features
 
-- **Causal History Debugger (CHD)**: Real-Time event bus that correlates AI actions, Git commits, and runtime errors to provide instant root-cause analysis.
-- **Sync Engine (Phase 6)**: Real-time filesystem synchronization with `chokidar` ensures zero drift between the AI's internal model and the codebase.
-- **Multi-Repository Workspaces**: Unified management of complex service architectures in a single "pocket" interface.
-- **Multi-Provider AI Intelligence**: Seamlessly switch between Gemini, MiMo, and OpenAI models with dedicated Smart, Fast, and Cheap tiers.
-- **Deep Performance Metrics**: Real-time tracking of AI latency, token usage, and model attribution for every instruction.
-- **CCC Protocol (Memory Layer)**: Automated, tiered generation of `WORKSPACE.md`, `LLM.md`, and `CONTEXT.md` artifacts for perfect AI comprehension.
+- **Runtime Determinism (Phase 6)**: Centralized mutation authority ensures that every filesystem write is measured, verified, and session-tracked via Git.
+- **Causal History Debugger (CHD)**: Real-time event bus correlates AI actions, Git commits, and runtime errors using a deterministic SQLite audit journal.
+- **CCC Embedded Runtime**: Automated, tiered generation of semantic context artifacts (`WORKSPACE.md`, `LLM.md`, `PKML.md`) for perfect AI comprehension.
+- **Structured Observability**: Integrated telemetry tracks latency, mutation throughput, and event causation across the entire system.
 - **Instruction-First UI**: A mobile-responsive interface where Chat is the IDE and the editor is a secondary tool for inspection, optimized for portrait and landscape modes.
 - **Git-Backed Sessions**: AI changes use transient branches for deterministic undo/redo logic.
 - **Dry Run Protection**: AI-proposed changes are presented as block-based PR summaries for touch-friendly user approval.

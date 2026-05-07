@@ -262,4 +262,3 @@ Truth lives in:
 5. Begin removing exec("ccc ...") entirely
 6. Promote CCC IR into in-memory graph system
 
-⸻
