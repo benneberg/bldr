@@ -27,9 +27,23 @@ export function DebuggerPanel({ projectId, socket }: DebuggerPanelProps) {
 
   useEffect(() => {
     const fetchEvents = async () => {
-      const res = await fetch(`/api/debug/events/${projectId}`);
-      const data = await res.json();
-      setEvents(data);
+      try {
+        const res = await fetch(`/api/debug/events/${projectId}`);
+        const text = await res.text();
+        if (!res.ok) {
+          throw new Error(`Server returned ${res.status}: ${text.slice(0, 100)}`);
+        }
+        
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch (parseError) {
+          throw new Error(`Malformed JSON response: ${text.slice(0, 100)}`);
+        }
+        setEvents(Array.isArray(data) ? data : []);
+      } catch (e: any) {
+        console.error('[Debugger] Failed to fetch events:', e.message || e);
+      }
     };
 
     fetchEvents();
@@ -66,10 +80,17 @@ export function DebuggerPanel({ projectId, socket }: DebuggerPanelProps) {
         <div className="flex items-center gap-3">
           <button 
             onClick={async () => {
-              const res = await fetch('/api/debug/db');
-              const data = await res.json();
-              console.log('Database Debug:', data);
-              alert('DB info printed to console');
+              try {
+                const res = await fetch('/api/debug/db');
+                const text = await res.text();
+                if (!res.ok) throw new Error(text);
+                const data = JSON.parse(text);
+                console.log('Database Debug:', data);
+                alert('DB info printed to console');
+              } catch (e: any) {
+                console.error('[Debugger] DB Debug failed:', e.message);
+                alert('DB debug failed: ' + e.message);
+              }
             }}
             className="p-1.5 hover:bg-white/5 rounded-lg text-mimo-text-muted transition-all"
             title="Debug DB"

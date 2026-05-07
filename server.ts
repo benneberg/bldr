@@ -540,7 +540,19 @@ app.get('/api/inspector/artifacts', async (req, res) => {
     console.log(`[Inspector] Fetching artifacts for session: ${sessionId}`);
     const artifacts = await inspectorService.getArtifacts(sessionId as string);
     console.log(`[Inspector] Found ${artifacts.length} artifacts`);
-    res.json(artifacts);
+    
+    // Validate each artifact to ensure it's serializable and safe
+    const validatedArtifacts = artifacts.map(a => {
+      try {
+        JSON.stringify(a);
+        return a;
+      } catch (e) {
+        console.error(`[Inspector] Failed to serialize artifact ${a?.id}:`, e);
+        return null;
+      }
+    }).filter(a => a !== null);
+
+    res.json(validatedArtifacts);
   } catch (err: any) {
     console.error(`[Inspector] Error fetching artifacts:`, err);
     res.status(500).json({ error: err.message });

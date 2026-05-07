@@ -104,16 +104,27 @@ export function FilesPanel({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ projectId })
       });
+      
       const text = await res.text();
+      if (!res.ok) {
+        throw new Error(`Server returned ${res.status}: ${text.slice(0, 100)}`);
+      }
+
       console.log('[GitStatus] API RESPONSE:', text);
-      const data = JSON.parse(text);
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (parseError) {
+        throw new Error(`Malformed JSON response: ${text.slice(0, 100)}`);
+      }
+
       const statusMap: Record<string, any> = {};
       data.files?.forEach((f: any) => {
         statusMap[f.path] = f.status;
       });
       setGitStatus(statusMap);
-    } catch (e) {
-      console.error('[GitStatus] Failed to fetch git status:', e);
+    } catch (e: any) {
+      console.error('[GitStatus] Failed to fetch git status:', e.message || e);
     }
   };
 
@@ -121,11 +132,19 @@ export function FilesPanel({
     try {
       const res = await fetch(`/api/git/gitignore/${projectId}`);
       const text = await res.text();
-      console.log('[Gitignore] API RESPONSE:', text);
-      const data = JSON.parse(text);
+      if (!res.ok) {
+        throw new Error(`Server returned ${res.status}: ${text.slice(0, 100)}`);
+      }
+      
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (parseError) {
+        throw new Error(`Malformed JSON response: ${text.slice(0, 100)}`);
+      }
       setGitignoreContent(data.content || '');
-    } catch (e) {
-      console.error('[Gitignore] Fetch failed:', e);
+    } catch (e: any) {
+      console.error('[Gitignore] Fetch failed:', e.message || e);
     }
   };
 
@@ -158,8 +177,18 @@ export function FilesPanel({
     try {
       const res = await fetch(`/api/files/${projectId}`);
       const text = await res.text();
-      console.log('[FilesFetch] API RESPONSE:', text);
-      const data = JSON.parse(text);
+      
+      if (!res.ok) {
+        throw new Error(`Server returned ${res.status}: ${text.slice(0, 100)}`);
+      }
+
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (parseError) {
+        throw new Error(`Malformed JSON response: ${text.slice(0, 100)}`);
+      }
+
       if (Array.isArray(data)) {
         console.log(`[FilesPanel] Received ${data.length} files`);
         setFiles(data);
@@ -167,8 +196,8 @@ export function FilesPanel({
         console.error('[FilesPanel] Unexpected data format:', data);
         setFiles([]);
       }
-    } catch (e) {
-      console.error('[FilesPanel] Fetch failed:', e);
+    } catch (e: any) {
+      console.error('[FilesPanel] Fetch failed:', e.message || e);
       setFiles([]);
     }
   };
@@ -184,7 +213,7 @@ export function FilesPanel({
         timeout = setTimeout(() => {
           fetchFiles();
           fetchGitStatus();
-        }, 300);
+        }, 2000);
       };
 
       socket.on('fs_event', (event: any) => {

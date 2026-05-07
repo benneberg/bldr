@@ -10,12 +10,13 @@ export class MiMoAdapter {
 
   async generateImage(prompt: string): Promise<PluginArtifact> {
     console.log(`[MiMoAdapter] Generating image for prompt: ${prompt}`);
-    const seedText = prompt.length > 50 ? prompt.substring(0, 50).trim() : prompt;
+    // Sanitize seed text for picsum - remove special chars that might break URL patterns
+    const sanitizedSeed = prompt.substring(0, 50).replace(/[^a-zA-Z0-9]/g, '_');
     return {
       id: uuidv4(),
       type: "image",
       source: "mimo",
-      data: `https://picsum.photos/seed/${encodeURIComponent(seedText)}/800/600`,
+      data: `https://picsum.photos/seed/${sanitizedSeed}/800/600`,
       metadata: {
         prompt,
         model: "mimo-v1-vision",

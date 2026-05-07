@@ -57,7 +57,9 @@ export default function App() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ projectId: selectedProjectId, command: 'npm run lint' })
           });
-          const data = await res.json();
+          const text = await res.text();
+          if (!res.ok) throw new Error(text);
+          const data = JSON.parse(text);
           if (data.stderr || data.error) {
             setHealthStatus({ 
               status: 'warning', 
@@ -66,7 +68,8 @@ export default function App() {
           } else {
             setHealthStatus({ status: 'healthy', issues: [] });
           }
-        } catch (e) {
+        } catch (e: any) {
+          console.error('[HealthCheck] Failed:', e.message || e);
           setHealthStatus({ status: 'error', issues: ['Health check failed to execute'] });
         }
       };

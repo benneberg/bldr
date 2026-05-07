@@ -44,10 +44,45 @@ export const PluginOutputPanel: React.FC<{ sessionId: string }> = ({ sessionId }
         throw new Error(`Server returned ${response.status}: ${text}`);
       }
       
-      const data = await response.json();
-      setArtifacts(data);
-    } catch (error) {
-      console.error('Failed to fetch artifacts:', error);
+      let data;
+      try {
+        data = await response.json();
+      } catch (jsonError: any) {
+        throw new Error(`Failed to parse artifacts JSON: ${jsonError.message}`);
+      }
+      
+      if (!Array.isArray(data)) {
+        throw new Error(`Artifacts data is not an array: ${typeof data}`);
+      }
+      
+      // Sanitize artifact data (especially for broken placeholder links)
+      const sanitizedData = data.map((artifact: any) => {
+        if (!artifact) return null;
+        if (artifact.type === 'image' && typeof artifact.data === 'string') {
+          // Map broken via.placeholder.com to placehold.co
+          if (artifact.data.includes('via.placeholder.com')) {
+            const match = artifact.data.match(/via\.placeholder\.com\/(\d+)(?:\/(\w+))?(?:\/(\w+))?(?:\?text=(.*))?/);
+            if (match) {
+              const size = match[1] || '512';
+              const text = match[4] || 'Image+Artifact';
+              artifact.data = `https://placehold.co/${size}x${size}/111/fff?text=${text}`;
+            } else {
+              artifact.data = artifact.data.replace('via.placeholder.com', 'placehold.co');
+            }
+          }
+        }
+        return artifact;
+      }).filter(a => a !== null);
+      
+      setArtifacts(sanitizedData);
+    } catch (error: any) {
+      // Very detailed logging for the pattern mismatch error
+      console.error('Failed to fetch artifacts:', {
+        message: error.message,
+        name: error.name,
+        stack: error.stack,
+        sessionId
+      });
     }
   };
 

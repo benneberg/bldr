@@ -36,21 +36,34 @@ export const ToolInspector: React.FC<{ projectId: string; sessionId?: string }> 
 
   const fetchEvents = async () => {
     try {
-      const response = await fetch(`/api/debug/events?projectId=${projectId}`);
-      const data = await response.json();
-      setEvents(data.map((m: any) => ({
-        ...m,
-        payload: JSON.parse(m.payload),
-        metadata: m.metadata ? JSON.parse(m.metadata) : {}
-      })));
-    } catch (error) {
-      console.error('Failed to fetch events:', error);
+      const response = await fetch(`/api/debug/events/${projectId}`);
+      const text = await response.text();
+      if (!response.ok) {
+        throw new Error(`Server returned ${response.status}: ${text.slice(0, 100)}`);
+      }
+
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (parseError) {
+        throw new Error(`Malformed JSON response: ${text.slice(0, 100)}`);
+      }
+
+      if (Array.isArray(data)) {
+        setEvents(data.map((m: any) => ({
+          ...m,
+          payload: typeof m.payload === 'string' ? JSON.parse(m.payload) : m.payload,
+          metadata: typeof m.metadata === 'string' ? JSON.parse(m.metadata) : (m.metadata || {})
+        })));
+      }
+    } catch (error: any) {
+      console.error('[ToolInspector] Failed to fetch events:', error.message || error);
     }
   };
 
   useEffect(() => {
     fetchEvents();
-    const interval = setInterval(fetchEvents, 3000);
+    const interval = setInterval(fetchEvents, 10000);
     return () => clearInterval(interval);
   }, [projectId]);
 
